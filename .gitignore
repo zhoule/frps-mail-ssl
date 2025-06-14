@@ -1,0 +1,42 @@
+# 忽略日志文件，但保留目录结构
+logs/*.log
+logs/**/*.log
+
+# 忽略SSL证书文件，但保留目录结构
+certbot/data/live/
+certbot/data/archive/
+certbot/data/renewal/
+certbot/data/accounts/
+
+# 忽略邮件数据文件，但保留目录结构
+stalwart-mail/data/*
+!stalwart-mail/data/.gitkeep
+
+# 忽略生成的配置文件，但保留目录结构
+frps/config/*.toml
+!frps/config/.gitkeep
+
+stalwart-mail/config/*.toml
+!stalwart-mail/config/.gitkeep
+
+nginx/conf/conf.d/*.conf
+!nginx/conf/conf.d/.gitkeep
+
+# 忽略自动生成的续签脚本
+renew.sh
+
+# 忽略临时文件
+*.tmp
+*.swp
+*.bak
+
+# 忽略系统文件
+.DS_Store
+Thumbs.db
+
+# 保留重要的静态文件
+!nginx/html/index.html
+!docker-compose.yml
+!deploy.sh
+!README.md
+!architecture.md

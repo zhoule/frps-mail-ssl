@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # Nginx 反向代理和SSL终止
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf:/etc/nginx:ro
+      - ./nginx/html:/usr/share/nginx/html
+      - ./certbot/data:/etc/letsencrypt:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - frps
+      - stalwart-mail
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # FRPS 服务器
+  frps:
+    image: snowdreamtech/frps:latest
+    container_name: frps-server
+    ports:
+      - "7000:7000"       # FRPS 主端口
+      - "7001:7001"       # Dashboard 端口
+    volumes:
+      - ./frps/config:/etc/frp
+      - ./logs/frps:/var/log/frps
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - app-network
+
+  # Stalwart 邮件服务器
+  stalwart-mail:
+    image: stalwartlabs/mail-server:latest
+    container_name: stalwart-mail-server
+    ports:
+      - "25:25"           # SMTP
+      - "587:587"         # SMTP Submission
+      - "465:465"         # SMTP Submissions (SSL)
+      - "993:993"         # IMAP SSL
+      - "995:995"         # POP3 SSL
+      - "4190:4190"       # ManageSieve
+    volumes:
+      - ./stalwart-mail/config:/opt/stalwart-mail/etc
+      - ./stalwart-mail/data:/opt/stalwart-mail/data
+      - ./stalwart-mail/logs:/opt/stalwart-mail/logs
+      - ./certbot/data/live:/opt/stalwart-mail/certs:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
