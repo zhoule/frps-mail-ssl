@@ -281,16 +281,41 @@ EOF
     log_info "Nginx配置生成完成"
 }
 
+# 生成域名HTTP配置 (用于证书申请)
+generate_domain_http_config() {
+    local domain=$1
+    
+    log_info "生成域名 $domain 的临时HTTP配置..."
+    
+    cat > "$SCRIPT_DIR/nginx/conf/conf.d/${domain}.conf" << EOF
+# 临时HTTP配置用于SSL证书申请
+server {
+    listen 80;
+    server_name $domain;
+
+    location /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+    }
+
+    location / {
+        return 200 'SSL certificate setup in progress...';
+        add_header Content-Type text/plain;
+    }
+}
+EOF
+    
+    log_info "域名 $domain 临时HTTP配置生成完成"
+}
+
 # 生成域名SSL配置
 generate_domain_ssl_config() {
     local domain=$1
     local service_name=$2
     local service_port=$3
-    local config_type=${4:-web}  # web, frps-web, frps-api, mail-web
+    local config_type=${4:-web}  # web, frps-web, frps-api
     
     log_info "生成域名 $domain 的SSL配置..."
     
-    local upstream_config=""
     local location_config=""
     
     case "$config_type" in
@@ -353,7 +378,8 @@ server {
 
 # HTTPS 服务器
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
     server_name $domain;
 
     # SSL 证书
@@ -453,21 +479,29 @@ deploy_services() {
     for domain in "${domains[@]}"; do
         log_info "配置域名: $domain"
         
-        # 生成nginx配置
-        case "$domain" in
-            "$frps_dashboard_domain")
-                generate_domain_ssl_config "$domain" "frps" "7001" "frps-web"
-                ;;
-            "$frps_domain")
-                generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
-                ;;
-        esac
+        # 1. 先生成HTTP配置用于证书申请
+        generate_domain_http_config "$domain"
         
         # 重新加载nginx
         docker exec nginx-proxy nginx -s reload
         
-        # 申请证书
+        # 2. 申请证书
         if request_ssl_certificate "$domain" "$admin_email"; then
+            log_info "域名 $domain SSL证书申请成功"
+            
+            # 3. 生成最终的SSL配置
+            case "$domain" in
+                "$frps_dashboard_domain")
+                    generate_domain_ssl_config "$domain" "frps" "7001" "frps-web"
+                    ;;
+                "$frps_domain")
+                    generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
+                    ;;
+            esac
+            
+            # 重新加载nginx应用SSL配置
+            docker exec nginx-proxy nginx -s reload
+            
             log_info "域名 $domain 配置完成"
         else
             log_error "域名 $domain 证书申请失败"
