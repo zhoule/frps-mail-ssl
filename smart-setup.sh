@@ -390,7 +390,7 @@ choose_ssl_type() {
     while true; do
         read -p "请输入Let's Encrypt注册邮箱: " email
         if validate_email "$email"; then
-            SETUP_CONFIG+=("EMAIL=$email")
+            LETSENCRYPT_EMAIL="$email"
             print_success "邮箱设置为: $email"
             break
         else
@@ -480,14 +480,14 @@ configure_monitoring() {
     # 邮件告警
     read -p "邮件告警地址 (留空跳过): " alert_email
     if [ -n "$alert_email" ] && validate_email "$alert_email"; then
-        SETUP_CONFIG+=("ALERT_EMAIL=$alert_email")
+        ALERT_EMAIL="$alert_email"
         print_success "邮件告警已配置"
     fi
     
     # Webhook告警
     read -p "Webhook URL (Slack/Discord等，留空跳过): " webhook_url
     if [ -n "$webhook_url" ]; then
-        SETUP_CONFIG+=("WEBHOOK_URL=$webhook_url")
+        WEBHOOK_URL="$webhook_url"
         print_success "Webhook告警已配置"
     fi
 }
@@ -526,23 +526,20 @@ execute_deployment() {
     
     case $DEPLOYMENT_TYPE in
         "personal")
-            deploy_cmd="$deploy_cmd deploy ${DOMAIN_CONFIG[0]} ${DOMAIN_CONFIG[1]} $(echo "${SETUP_CONFIG[@]}" | grep EMAIL | cut -d'=' -f2)"
+            deploy_cmd="$deploy_cmd deploy ${DOMAIN_CONFIG[0]} ${DOMAIN_CONFIG[1]} $LETSENCRYPT_EMAIL"
             ;;
         "enterprise")
-            local email=$(echo "${SETUP_CONFIG[@]}" | grep EMAIL | cut -d'=' -f2)
             if [ ${#DOMAIN_CONFIG[@]} -eq 2 ]; then
-                deploy_cmd="$deploy_cmd deploy ${DOMAIN_CONFIG[0]} ${DOMAIN_CONFIG[1]} $email"
+                deploy_cmd="$deploy_cmd deploy ${DOMAIN_CONFIG[0]} ${DOMAIN_CONFIG[1]} $LETSENCRYPT_EMAIL"
             else
-                deploy_cmd="$deploy_cmd deploy ${DOMAIN_CONFIG[0]} $email"
+                deploy_cmd="$deploy_cmd deploy ${DOMAIN_CONFIG[0]} $LETSENCRYPT_EMAIL"
             fi
             ;;
         "wildcard")
-            local email=$(echo "${SETUP_CONFIG[@]}" | grep EMAIL | cut -d'=' -f2)
-            deploy_cmd="$deploy_cmd wildcard ${DOMAIN_CONFIG[0]} $email cloudflare"
+            deploy_cmd="$deploy_cmd wildcard ${DOMAIN_CONFIG[0]} $LETSENCRYPT_EMAIL cloudflare"
             ;;
         "custom")
-            local email=$(echo "${SETUP_CONFIG[@]}" | grep EMAIL | cut -d'=' -f2)
-            deploy_cmd="$deploy_cmd deploy ${DOMAIN_CONFIG[0]} $email"
+            deploy_cmd="$deploy_cmd deploy ${DOMAIN_CONFIG[0]} $LETSENCRYPT_EMAIL"
             ;;
     esac
     
@@ -573,14 +570,12 @@ execute_deployment() {
             "$SCRIPT_DIR/monitoring-alerts.sh" init
             
             # 写入告警配置
-            if [ -n "$(echo "${SETUP_CONFIG[@]}" | grep ALERT_EMAIL)" ]; then
-                local email=$(echo "${SETUP_CONFIG[@]}" | grep ALERT_EMAIL | cut -d'=' -f2)
-                sed -i "s/ALERT_EMAIL=\"\"/ALERT_EMAIL=\"$email\"/" "$SCRIPT_DIR/monitoring.conf"
+            if [ -n "$ALERT_EMAIL" ]; then
+                sed -i "s/ALERT_EMAIL=\"\"/ALERT_EMAIL=\"$ALERT_EMAIL\"/" "$SCRIPT_DIR/monitoring.conf"
             fi
             
-            if [ -n "$(echo "${SETUP_CONFIG[@]}" | grep WEBHOOK_URL)" ]; then
-                local webhook=$(echo "${SETUP_CONFIG[@]}" | grep WEBHOOK_URL | cut -d'=' -f2)
-                sed -i "s|WEBHOOK_URL=\"\"|WEBHOOK_URL=\"$webhook\"|" "$SCRIPT_DIR/monitoring.conf"
+            if [ -n "$WEBHOOK_URL" ]; then
+                sed -i "s|WEBHOOK_URL=\"\"|WEBHOOK_URL=\"$WEBHOOK_URL\"|" "$SCRIPT_DIR/monitoring.conf"
             fi
             
             print_success "监控系统已配置"
