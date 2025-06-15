@@ -164,7 +164,7 @@ generate_frps_config() {
     if [ -n "$FRPS_TOKEN" ]; then
         frps_token="$FRPS_TOKEN"
     else
-        frps_token=${2:-$(openssl rand -hex 32)}
+        frps_token=${2:-"Mercury123*"}
     fi
     
     if [ -n "$ADMIN_PASSWORD" ]; then
@@ -209,6 +209,9 @@ transport.heartbeatTimeout = 90
 # HTTP虚拟主机配置
 vhostHTTPPort = 8880
 vhostHTTPSPort = 8843
+
+# 子域名配置
+subdomainHost = "$frps_domain"
 
 # 端口白名单，允许客户端绑定的端口范围
 allowPorts = [
@@ -550,7 +553,7 @@ deploy_services() {
     local frps_domain=$1
     local frps_dashboard_domain=$2
     local admin_email=$3
-    local frps_token=${4:-$(openssl rand -hex 16)}
+    local frps_token=${4:-"Mercury123*"}
     local dashboard_user=${5:-admin}
     local dashboard_pwd=${6:-$(openssl rand -hex 12)}
     
@@ -808,7 +811,7 @@ deploy_wildcard() {
     log_info "DNS提供商: $dns_provider"
     
     # 1. 生成FRPS配置
-    local frps_token=$(openssl rand -hex 16)
+    local frps_token="Mercury123*"
     local dashboard_user="admin"
     local dashboard_pwd=$(openssl rand -hex 12)
     

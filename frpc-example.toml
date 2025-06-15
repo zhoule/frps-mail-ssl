@@ -7,7 +7,7 @@ serverPort = 7000
 
 # 认证配置
 auth.method = "token"
-auth.token = "your_secure_token"  # 需要与服务端token一致
+auth.token = "Mercury123*"  # 需要与服务端token一致
 
 # 日志配置
 log.to = "./frpc.log"
