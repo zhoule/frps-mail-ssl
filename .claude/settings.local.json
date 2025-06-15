@@ -7,7 +7,11 @@
       "Bash(find:*)",
       "Bash(ls:*)",
       "Bash(grep:*)",
-      "Bash(docker:*)"
+      "Bash(docker:*)",
+      "Bash(nslookup:*)",
+      "Bash(curl:*)",
+      "Bash(sudo ufw:*)",
+      "Bash(sudo netstat:*)"
     ],
     "deny": []
   }

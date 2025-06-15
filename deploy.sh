@@ -869,7 +869,9 @@ ${CYAN}示例:${NC}
     $0 deploy frps.example.com admin@example.com
     $0 deploy frps.example.com admin-frps.example.com admin@example.com
     $0 deploy frps.example.com admin.example.com dev.example.com admin@example.com
-    $0 wildcard example.com admin@example.com cloudflare
+    $0 wildcard flowbytes.cn admin@example.com cloudflare
+    $0 wildcard flowbytes.cn admin@example.com aliyun
+    $0 wildcard flowbytes.cn admin@example.com tencent
     $0 renew
     $0 status
     $0 security all    # 执行所有安全增强
@@ -879,7 +881,7 @@ ${CYAN}说明:${NC}
     - frps域名: FRPS服务访问域名
     - dashboard域名: FRPS管理界面独立域名 (推荐使用二级域名)
     - 主域名: 用于泛域名证书的根域名
-    - dns-provider: DNS提供商 (cloudflare/aliyun/route53)
+    - dns-provider: DNS提供商 (cloudflare/aliyun/tencent)
     - 邮箱: Let's Encrypt注册邮箱
 
 ${CYAN}SSL证书方案:${NC}
@@ -895,6 +897,155 @@ ${CYAN}推荐配置:${NC}
 EOF
 }
 
+# DNS API配置验证
+validate_dns_credentials() {
+    local dns_provider=$1
+    
+    case "$dns_provider" in
+        "cloudflare")
+            if [ -z "$CLOUDFLARE_EMAIL" ] || [ -z "$CLOUDFLARE_API_KEY" ]; then
+                log_error "Cloudflare DNS API配置不完整"
+                echo ""
+                echo -e "${YELLOW}请设置以下环境变量:${NC}"
+                echo -e "  ${CYAN}export CLOUDFLARE_EMAIL=\"your-email@example.com\"${NC}"
+                echo -e "  ${CYAN}export CLOUDFLARE_API_KEY=\"your-api-key\"${NC}"
+                echo ""
+                echo -e "${YELLOW}或者在 .env 文件中配置:${NC}"
+                echo -e "  ${CYAN}CLOUDFLARE_EMAIL=your-email@example.com${NC}"
+                echo -e "  ${CYAN}CLOUDFLARE_API_KEY=your-api-key${NC}"
+                return 1
+            fi
+            ;;
+        "aliyun")
+            if [ -z "$ALIBABA_CLOUD_ACCESS_KEY_ID" ] || [ -z "$ALIBABA_CLOUD_ACCESS_KEY_SECRET" ]; then
+                log_error "阿里云DNS API配置不完整"
+                echo ""
+                echo -e "${YELLOW}请设置以下环境变量:${NC}"
+                echo -e "  ${CYAN}export ALIBABA_CLOUD_ACCESS_KEY_ID=\"your-access-key\"${NC}"
+                echo -e "  ${CYAN}export ALIBABA_CLOUD_ACCESS_KEY_SECRET=\"your-secret-key\"${NC}"
+                echo ""
+                echo -e "${YELLOW}或者在 .env 文件中配置:${NC}"
+                echo -e "  ${CYAN}ALIBABA_CLOUD_ACCESS_KEY_ID=your-access-key${NC}"
+                echo -e "  ${CYAN}ALIBABA_CLOUD_ACCESS_KEY_SECRET=your-secret-key${NC}"
+                return 1
+            fi
+            ;;
+        "tencent")
+            if [ -z "$TENCENTCLOUD_SECRET_ID" ] || [ -z "$TENCENTCLOUD_SECRET_KEY" ]; then
+                log_error "腾讯云DNS API配置不完整"
+                echo ""
+                echo -e "${YELLOW}请设置以下环境变量:${NC}"
+                echo -e "  ${CYAN}export TENCENTCLOUD_SECRET_ID=\"your-secret-id\"${NC}"
+                echo -e "  ${CYAN}export TENCENTCLOUD_SECRET_KEY=\"your-secret-key\"${NC}"
+                echo ""
+                echo -e "${YELLOW}或者在 .env 文件中配置:${NC}"
+                echo -e "  ${CYAN}TENCENTCLOUD_SECRET_ID=your-secret-id${NC}"
+                echo -e "  ${CYAN}TENCENTCLOUD_SECRET_KEY=your-secret-key${NC}"
+                return 1
+            fi
+            ;;
+        *)
+            log_error "不支持的DNS提供商: $dns_provider"
+            echo -e "${YELLOW}支持的DNS提供商: cloudflare, aliyun, tencent${NC}"
+            return 1
+            ;;
+    esac
+    
+    log_info "DNS API配置验证通过: $dns_provider"
+    return 0
+}
+
+# 加载环境变量
+load_env_file() {
+    if [ -f "$SCRIPT_DIR/.env" ]; then
+        log_info "加载环境变量文件: .env"
+        set -a
+        source "$SCRIPT_DIR/.env"
+        set +a
+    fi
+}
+
+# 申请泛域名SSL证书
+request_wildcard_certificate() {
+    local root_domain=$1
+    local admin_email=$2
+    local dns_provider=$3
+    
+    log_info "开始申请泛域名SSL证书: *.$root_domain"
+    
+    local docker_env_args=""
+    local certbot_plugin=""
+    
+    case "$dns_provider" in
+        "cloudflare")
+            certbot_plugin="dns-cloudflare"
+            docker_env_args="-e CLOUDFLARE_EMAIL=$CLOUDFLARE_EMAIL -e CLOUDFLARE_API_KEY=$CLOUDFLARE_API_KEY"
+            
+            # 创建Cloudflare凭据文件
+            mkdir -p "$SCRIPT_DIR/certbot/credentials"
+            cat > "$SCRIPT_DIR/certbot/credentials/cloudflare.ini" << EOF
+dns_cloudflare_email = $CLOUDFLARE_EMAIL
+dns_cloudflare_api_key = $CLOUDFLARE_API_KEY
+EOF
+            chmod 600 "$SCRIPT_DIR/certbot/credentials/cloudflare.ini"
+            ;;
+        "aliyun")
+            certbot_plugin="dns-aliyun"
+            docker_env_args="-e ALIBABA_CLOUD_ACCESS_KEY_ID=$ALIBABA_CLOUD_ACCESS_KEY_ID -e ALIBABA_CLOUD_ACCESS_KEY_SECRET=$ALIBABA_CLOUD_ACCESS_KEY_SECRET"
+            
+            # 创建阿里云凭据文件
+            mkdir -p "$SCRIPT_DIR/certbot/credentials"
+            cat > "$SCRIPT_DIR/certbot/credentials/aliyun.ini" << EOF
+dns_aliyun_access_key_id = $ALIBABA_CLOUD_ACCESS_KEY_ID
+dns_aliyun_access_key_secret = $ALIBABA_CLOUD_ACCESS_KEY_SECRET
+EOF
+            chmod 600 "$SCRIPT_DIR/certbot/credentials/aliyun.ini"
+            ;;
+        "tencent")
+            certbot_plugin="dns-tencent"
+            docker_env_args="-e TENCENTCLOUD_SECRET_ID=$TENCENTCLOUD_SECRET_ID -e TENCENTCLOUD_SECRET_KEY=$TENCENTCLOUD_SECRET_KEY"
+            
+            # 创建腾讯云凭据文件
+            mkdir -p "$SCRIPT_DIR/certbot/credentials"
+            cat > "$SCRIPT_DIR/certbot/credentials/tencent.ini" << EOF
+dns_tencent_secret_id = $TENCENTCLOUD_SECRET_ID
+dns_tencent_secret_key = $TENCENTCLOUD_SECRET_KEY
+EOF
+            chmod 600 "$SCRIPT_DIR/certbot/credentials/tencent.ini"
+            ;;
+    esac
+    
+    # 使用自定义certbot镜像（包含DNS插件）
+    local certbot_image="certbot/dns-$dns_provider"
+    if [ "$dns_provider" = "aliyun" ]; then
+        certbot_image="soulteary/certbot-dns-aliyun"
+    elif [ "$dns_provider" = "tencent" ]; then
+        certbot_image="soulteary/certbot-dns-tencent"
+    fi
+    
+    docker run --rm \
+        -v "$SCRIPT_DIR/certbot/data:/etc/letsencrypt" \
+        -v "$SCRIPT_DIR/certbot/credentials:/etc/letsencrypt/credentials" \
+        $docker_env_args \
+        $certbot_image certonly \
+        --$certbot_plugin \
+        --${certbot_plugin}-credentials /etc/letsencrypt/credentials/${dns_provider}.ini \
+        --email "$admin_email" \
+        --agree-tos \
+        --no-eff-email \
+        --non-interactive \
+        -d "$root_domain" \
+        -d "*.$root_domain"
+    
+    if [ $? -eq 0 ]; then
+        log_info "泛域名SSL证书申请成功: *.$root_domain"
+        return 0
+    else
+        log_error "泛域名SSL证书申请失败: *.$root_domain"
+        return 1
+    fi
+}
+
 # 泛域名部署
 deploy_wildcard() {
     local root_domain=$1
@@ -907,6 +1058,14 @@ deploy_wildcard() {
         exit 1
     fi
     
+    # 加载环境变量
+    load_env_file
+    
+    # 验证DNS API配置
+    if ! validate_dns_credentials "$dns_provider"; then
+        exit 1
+    fi
+    
     log_info "开始部署泛域名SSL方案..."
     log_info "根域名: $root_domain"
     log_info "DNS提供商: $dns_provider"
@@ -916,10 +1075,19 @@ deploy_wildcard() {
     local dashboard_user="admin"
     local dashboard_pwd=$(openssl rand -hex 12)
     
+    # 使用安全配置管理
+    source_secret_utils
+    if [ -n "$FRPS_TOKEN" ]; then
+        frps_token="$FRPS_TOKEN"
+    fi
+    if [ -n "$ADMIN_PASSWORD" ]; then
+        dashboard_pwd="$ADMIN_PASSWORD"
+    fi
+    
     generate_frps_config "$root_domain" "$frps_token" "$dashboard_user" "$dashboard_pwd"
     
-    # 2. 生成泛域名nginx配置
-    generate_wildcard_nginx_config "$root_domain"
+    # 2. 生成泛域名nginx配置（先生成HTTP版本）
+    generate_wildcard_nginx_config_http "$root_domain"
     
     # 3. 启动基础服务
     log_info "启动基础服务..."
@@ -928,35 +1096,74 @@ deploy_wildcard() {
     # 等待服务启动
     sleep 10
     
-    # 4. 提示用户配置DNS和申请证书
+    # 4. 申请泛域名SSL证书
+    if request_wildcard_certificate "$root_domain" "$admin_email" "$dns_provider"; then
+        log_info "泛域名SSL证书申请成功"
+    else
+        log_error "泛域名SSL证书申请失败"
+        return 1
+    fi
+    
+    # 5. 生成SSL配置
+    generate_wildcard_nginx_config "$root_domain"
+    
+    # 6. 重新加载nginx
+    docker exec nginx-proxy nginx -s reload
+    log_info "泛域名配置完成"
+    
+    # 7. 最终重启服务
+    log_info "重启所有服务以应用SSL配置..."
+    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" restart
+    
+    # 8. 显示部署结果
     echo ""
-    echo -e "${YELLOW}⚠️  泛域名证书需要手动配置DNS验证${NC}"
+    echo -e "${GREEN}🎉 泛域名SSL部署完成！${NC}"
     echo ""
-    echo -e "${CYAN}请按以下步骤配置:${NC}"
-    echo ""
-    echo "1. 确保DNS解析已配置:"
-    echo -e "   ${YELLOW}$root_domain${NC}      IN  A     your-server-ip"
-    echo -e "   ${YELLOW}*.$root_domain${NC}    IN  A     your-server-ip"
-    echo ""
-    echo "2. 安装DNS插件和申请证书:"
-    echo -e "   查看详细说明: ${CYAN}docs/wildcard-ssl.md${NC}"
-    echo ""
-    echo "3. 证书申请成功后，访问地址:"
-    echo -e "   FRPS服务: ${YELLOW}https://$root_domain${NC}"
-    echo -e "   管理界面: ${YELLOW}https://admin-frps.$root_domain${NC} (${dashboard_user}/${dashboard_pwd})"
-    echo -e "   任意子域名: ${YELLOW}https://subdomain.$root_domain${NC} (通过frpc设置)"
+    echo -e "${CYAN}服务访问地址:${NC}"
+    echo -e "  FRPS服务: ${YELLOW}https://$root_domain${NC}"
+    echo -e "  管理界面: ${YELLOW}https://admin.$root_domain${NC} (${dashboard_user}/${dashboard_pwd})"
+    echo -e "  任意子域名: ${YELLOW}https://任意名称.$root_domain${NC} (自动SSL)"
     echo ""
     echo -e "${CYAN}FRPS配置信息:${NC}"
-    echo -e "  Token: ${YELLOW}$frps_token${NC}"
+    echo -e "  Token: ${YELLOW}${frps_token:0:8}...${frps_token: -4}${NC}"
     echo -e "  服务器: ${YELLOW}$root_domain:7000${NC}"
+    echo -e "  完整配置: ${YELLOW}./secret-utils.sh info${NC}"
     echo ""
+    echo -e "${GREEN}✅ 现在任何子域名都会自动拥有SSL证书！${NC}"
+    echo ""
+}
+
+# 生成泛域名HTTP配置（用于证书申请前）
+generate_wildcard_nginx_config_http() {
+    local root_domain=$1
+    
+    log_info "生成泛域名HTTP配置..."
+    
+    cat > "$SCRIPT_DIR/nginx/conf/conf.d/wildcard.conf" << EOF
+# 泛域名HTTP配置（用于证书申请）
+server {
+    listen 80;
+    server_name $root_domain *.$root_domain;
+
+    location /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+    }
+
+    location / {
+        return 200 'SSL certificate setup in progress...';
+        add_header Content-Type text/plain;
+    }
+}
+EOF
+    
+    log_info "泛域名HTTP配置生成完成"
 }
 
 # 生成泛域名nginx配置
 generate_wildcard_nginx_config() {
     local root_domain=$1
     
-    log_info "生成泛域名nginx配置..."
+    log_info "生成泛域名nginx SSL配置..."
     
     cat > "$SCRIPT_DIR/nginx/conf/conf.d/wildcard.conf" << EOF
 # 泛域名HTTP -> HTTPS重定向
