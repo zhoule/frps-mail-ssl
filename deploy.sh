@@ -183,6 +183,10 @@ transport.maxPoolCount = 5
 # 心跳配置
 transport.heartbeatTimeout = 90
 
+# HTTP虚拟主机配置
+vhostHTTPPort = 8880
+vhostHTTPSPort = 8843
+
 # 端口白名单，允许客户端绑定的端口范围
 allowPorts = [
   { start = 2000, end = 3000 },
@@ -336,6 +340,17 @@ generate_domain_ssl_config() {
         "frps-api")
             # FRPS HTTP 代理
             location_config='
+    location /admin {
+        proxy_pass http://frps:7001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location / {
         proxy_pass http://frps:8880;
         proxy_http_version 1.1;
@@ -522,6 +537,8 @@ deploy_services() {
     echo -e "  FRPS服务: ${YELLOW}https://$frps_domain${NC}"
     if [ -n "$frps_dashboard_domain" ]; then
         echo -e "  FRPS管理: ${YELLOW}https://$frps_dashboard_domain${NC} (${dashboard_user}/${dashboard_pwd})"
+    else
+        echo -e "  FRPS管理: ${YELLOW}https://$frps_domain/admin${NC} (${dashboard_user}/${dashboard_pwd})"
     fi
     echo ""
     echo -e "${CYAN}FRPS配置信息:${NC}"
