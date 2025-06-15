@@ -548,6 +548,105 @@ init_deployment() {
     log_info "环境初始化完成"
 }
 
+# 多域名部署
+deploy_multiple_domains() {
+    local domains=("$@")
+    local admin_email="${domains[-1]}"
+    unset 'domains[-1]'  # 移除最后一个元素（邮箱）
+    
+    if [ ${#domains[@]} -eq 0 ] || [ -z "$admin_email" ]; then
+        log_error "参数不完整"
+        show_usage
+        exit 1
+    fi
+    
+    local frps_domain="${domains[0]}"
+    local frps_dashboard_domain=""
+    
+    # 如果有第二个域名，作为dashboard域名
+    if [ ${#domains[@]} -gt 1 ]; then
+        frps_dashboard_domain="${domains[1]}"
+    fi
+    
+    log_info "开始多域名部署..."
+    log_info "FRPS域名: $frps_domain"
+    if [ -n "$frps_dashboard_domain" ]; then
+        log_info "Dashboard域名: $frps_dashboard_domain"
+    fi
+    log_info "其他域名: ${domains[@]:2}"
+    log_info "邮箱: $admin_email"
+    
+    # 1. 生成服务配置
+    local frps_token="Mercury123*"
+    local dashboard_user="admin"
+    local dashboard_pwd=$(openssl rand -hex 12)
+    
+    generate_frps_config "$frps_domain" "$frps_token" "$dashboard_user" "$dashboard_pwd"
+    
+    # 2. 为所有域名生成HTTP配置用于证书申请
+    for domain in "${domains[@]}"; do
+        generate_domain_http_config "$domain"
+    done
+    
+    # 3. 启动基础服务
+    log_info "启动基础服务..."
+    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" up -d nginx frps
+    
+    # 等待服务启动
+    sleep 10
+    
+    # 4. 申请多域名SSL证书
+    if request_ssl_certificate "$admin_email" "${domains[@]}"; then
+        log_info "多域名SSL证书申请成功"
+    else
+        log_error "多域名SSL证书申请失败"
+        return 1
+    fi
+    
+    # 5. 为每个域名生成SSL配置
+    for i in "${!domains[@]}"; do
+        local domain="${domains[$i]}"
+        log_info "生成域名 $domain 的SSL配置..."
+        
+        if [ "$domain" = "$frps_dashboard_domain" ]; then
+            generate_domain_ssl_config "$domain" "frps" "7001" "frps-web"
+        elif [ "$domain" = "$frps_domain" ]; then
+            generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
+        else
+            # 其他域名也代理到FRPS
+            generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
+        fi
+    done
+    
+    # 6. 重新加载nginx应用所有SSL配置
+    docker exec nginx-proxy nginx -s reload
+    log_info "所有域名配置完成"
+    
+    # 7. 最终重启所有服务
+    log_info "重启所有服务以应用SSL配置..."
+    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" restart
+    
+    # 8. 显示部署结果
+    echo ""
+    echo -e "${GREEN}🎉 多域名部署完成！${NC}"
+    echo ""
+    echo -e "${CYAN}服务访问地址:${NC}"
+    for domain in "${domains[@]}"; do
+        if [ "$domain" = "$frps_dashboard_domain" ]; then
+            echo -e "  FRPS管理: ${YELLOW}https://$domain${NC} (${dashboard_user}/${dashboard_pwd})"
+        elif [ "$domain" = "$frps_domain" ]; then
+            echo -e "  FRPS服务: ${YELLOW}https://$domain${NC}"
+        else
+            echo -e "  其他域名: ${YELLOW}https://$domain${NC}"
+        fi
+    done
+    echo ""
+    echo -e "${CYAN}FRPS配置信息:${NC}"
+    echo -e "  Token: ${YELLOW}${frps_token:0:8}...${frps_token: -4}${NC}"
+    echo -e "  服务器: ${YELLOW}$frps_domain:7000${NC}"
+    echo ""
+}
+
 # 部署服务
 deploy_services() {
     local frps_domain=$1
@@ -757,6 +856,7 @@ ${CYAN}用法:${NC}
     $0 init                                 初始化环境
     $0 deploy <frps域名> <邮箱>              部署FRPS服务
     $0 deploy <frps域名> <dashboard域名> <邮箱>  部署包含独立管理界面
+    $0 deploy <域名1> <域名2> <域名3>... <邮箱>  部署多个域名
     $0 wildcard <主域名> <邮箱> <dns-provider>  部署泛域名SSL方案
     $0 renew                                续签证书
     $0 setup-cron                           设置自动续签
@@ -768,6 +868,7 @@ ${CYAN}示例:${NC}
     $0 init
     $0 deploy frps.example.com admin@example.com
     $0 deploy frps.example.com admin-frps.example.com admin@example.com
+    $0 deploy frps.example.com admin.example.com dev.example.com admin@example.com
     $0 wildcard example.com admin@example.com cloudflare
     $0 renew
     $0 status
@@ -933,6 +1034,13 @@ main() {
             elif [ $# -eq 4 ]; then
                 # deploy frps.example.com admin.example.com admin@example.com
                 deploy_services "$2" "$3" "$4"
+            elif [ $# -ge 5 ]; then
+                # deploy frps.example.com dashboard.example.com other.example.com ... admin@example.com
+                # 提取邮箱（最后一个参数）
+                local email="${@: -1}"
+                # 提取所有域名（除了最后一个参数）
+                local domains=("${@:2:$#-2}")
+                deploy_multiple_domains "${domains[@]}" "$email"
             else
                 log_error "参数不正确"
                 show_usage
