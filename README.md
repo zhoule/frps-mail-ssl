@@ -78,8 +78,11 @@ cd /opt/frps-ssl-deploy
 ### 部署示例
 
 ```bash
-# 完整部署
-./deploy.sh deploy frps.mydomain.com admin.mydomain.com
+# 推荐部署（使用独立管理域名）
+./deploy.sh deploy frps.mydomain.com admin-frps.mydomain.com admin@mydomain.com
+
+# 简单部署（仅FRPS服务）
+./deploy.sh deploy frps.mydomain.com admin@mydomain.com
 ```
 
 ## 🏗️ 服务架构

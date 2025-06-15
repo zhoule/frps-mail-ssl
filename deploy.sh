@@ -338,24 +338,8 @@ generate_domain_ssl_config() {
     }'
             ;;
         "frps-api")
-            # FRPS HTTP 代理
+            # FRPS HTTP 代理 + Dashboard (通过端口访问)
             location_config='
-    location /admin/ {
-        proxy_pass http://frps:7001/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_redirect off;
-    }
-
-    location /admin {
-        return 301 $scheme://$host/admin/;
-    }
-
     location / {
         proxy_pass http://frps:8880;
         proxy_http_version 1.1;
@@ -599,7 +583,11 @@ deploy_services() {
     if [ -n "$frps_dashboard_domain" ]; then
         echo -e "  FRPS管理: ${YELLOW}https://$frps_dashboard_domain${NC} (${dashboard_user}/${dashboard_pwd})"
     else
-        echo -e "  FRPS管理: ${YELLOW}https://$frps_domain/admin/${NC} (${dashboard_user}/${dashboard_pwd})"
+        echo -e "${YELLOW}⚠️  管理界面未配置独立域名${NC}"
+        echo -e "   推荐重新部署并添加管理域名："
+        echo -e "   ${CYAN}./deploy.sh deploy $frps_domain admin-$frps_domain admin@example.com${NC}"
+        echo -e ""
+        echo -e "   或临时访问: ${YELLOW}http://$frps_domain:7000${NC} (通过客户端API)"
     fi
     echo ""
     echo -e "${CYAN}FRPS配置信息:${NC}"
@@ -690,8 +678,8 @@ ${CYAN}FRPS + Nginx SSL 一键部署系统${NC}
 
 ${CYAN}用法:${NC}
     $0 init                                 初始化环境
-    $0 deploy <frps域名> <邮箱>              部署所有服务
-    $0 deploy <frps域名> <dashboard域名> <邮箱>  部署包含dashboard
+    $0 deploy <frps域名> <邮箱>              部署FRPS服务
+    $0 deploy <frps域名> <dashboard域名> <邮箱>  部署包含独立管理界面
     $0 renew                                续签证书
     $0 setup-cron                           设置自动续签
     $0 status                               显示状态
@@ -699,14 +687,21 @@ ${CYAN}用法:${NC}
 ${CYAN}示例:${NC}
     $0 init
     $0 deploy frps.example.com admin@example.com
-    $0 deploy frps.example.com admin.example.com admin@example.com
+    $0 deploy frps.example.com admin-frps.example.com admin@example.com
     $0 renew
     $0 status
 
 ${CYAN}说明:${NC}
     - frps域名: FRPS服务访问域名
-    - dashboard域名: FRPS管理界面域名 (可选)
+    - dashboard域名: FRPS管理界面独立域名 (推荐使用二级域名)
     - 邮箱: Let's Encrypt注册邮箱
+
+${CYAN}推荐配置:${NC}
+    使用独立二级域名的好处:
+    ✅ SSL加密保护管理界面
+    ✅ 避免端口暴露
+    ✅ 更专业的访问方式
+    ✅ 可以单独配置访问控制
 EOF
 }
 
