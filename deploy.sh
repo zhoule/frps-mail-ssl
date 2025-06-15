@@ -340,8 +340,8 @@ generate_domain_ssl_config() {
         "frps-api")
             # FRPS HTTP 代理
             location_config='
-    location /admin {
-        proxy_pass http://frps:7001;
+    location /admin/ {
+        proxy_pass http://frps:7001/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -349,6 +349,11 @@ generate_domain_ssl_config() {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+
+    location /admin {
+        return 301 $scheme://$host/admin/;
     }
 
     location / {
@@ -415,10 +420,47 @@ EOF
     log_info "域名 $domain 配置生成完成"
 }
 
+# 检查SSL证书是否有效
+check_ssl_certificate() {
+    local domain=$1
+    local cert_file="$SCRIPT_DIR/certbot/data/live/$domain/cert.pem"
+    
+    # 检查证书文件是否存在
+    if [ ! -f "$cert_file" ]; then
+        log_info "域名 $domain 证书不存在，需要申请"
+        return 1
+    fi
+    
+    # 检查证书是否在30天内过期
+    local expiry_date=$(openssl x509 -in "$cert_file" -noout -enddate 2>/dev/null | cut -d= -f2)
+    if [ -z "$expiry_date" ]; then
+        log_warn "无法读取证书过期时间，重新申请证书"
+        return 1
+    fi
+    
+    local expiry_timestamp=$(date -d "$expiry_date" +%s 2>/dev/null || date -j -f "%b %d %H:%M:%S %Y %Z" "$expiry_date" +%s 2>/dev/null)
+    local current_timestamp=$(date +%s)
+    local thirty_days=$((30 * 24 * 3600))
+    
+    if [ $((expiry_timestamp - current_timestamp)) -lt $thirty_days ]; then
+        log_warn "域名 $domain 证书将在30天内过期，需要续签"
+        return 1
+    else
+        log_info "域名 $domain 证书有效，有效期至: $(date -d "$expiry_date" 2>/dev/null || date -j -f "%b %d %H:%M:%S %Y %Z" "$expiry_date" +"%Y-%m-%d" 2>/dev/null)"
+        return 0
+    fi
+}
+
 # 申请SSL证书
 request_ssl_certificate() {
     local domain=$1
     local email=$2
+    
+    # 先检查证书是否有效
+    if check_ssl_certificate "$domain"; then
+        log_info "域名 $domain 证书仍然有效，跳过申请"
+        return 0
+    fi
     
     log_info "为域名 $domain 申请SSL证书..."
     
@@ -431,7 +473,6 @@ request_ssl_certificate() {
         --email "$email" \
         --agree-tos \
         --no-eff-email \
-        --force-renewal \
         --non-interactive \
         -d "$domain"
     
@@ -494,17 +535,11 @@ deploy_services() {
     for domain in "${domains[@]}"; do
         log_info "配置域名: $domain"
         
-        # 1. 先生成HTTP配置用于证书申请
-        generate_domain_http_config "$domain"
-        
-        # 重新加载nginx
-        docker exec nginx-proxy nginx -s reload
-        
-        # 2. 申请证书
-        if request_ssl_certificate "$domain" "$admin_email"; then
-            log_info "域名 $domain SSL证书申请成功"
+        # 检查证书是否已存在且有效
+        if check_ssl_certificate "$domain"; then
+            log_info "域名 $domain 证书有效，直接生成SSL配置"
             
-            # 3. 生成最终的SSL配置
+            # 直接生成SSL配置
             case "$domain" in
                 "$frps_dashboard_domain")
                     generate_domain_ssl_config "$domain" "frps" "7001" "frps-web"
@@ -514,12 +549,38 @@ deploy_services() {
                     ;;
             esac
             
-            # 重新加载nginx应用SSL配置
+            # 重新加载nginx
             docker exec nginx-proxy nginx -s reload
-            
             log_info "域名 $domain 配置完成"
         else
-            log_error "域名 $domain 证书申请失败"
+            # 证书不存在或无效，需要申请
+            # 1. 先生成HTTP配置用于证书申请
+            generate_domain_http_config "$domain"
+            
+            # 重新加载nginx
+            docker exec nginx-proxy nginx -s reload
+            
+            # 2. 申请证书
+            if request_ssl_certificate "$domain" "$admin_email"; then
+                log_info "域名 $domain SSL证书申请成功"
+                
+                # 3. 生成最终的SSL配置
+                case "$domain" in
+                    "$frps_dashboard_domain")
+                        generate_domain_ssl_config "$domain" "frps" "7001" "frps-web"
+                        ;;
+                    "$frps_domain")
+                        generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
+                        ;;
+                esac
+                
+                # 重新加载nginx应用SSL配置
+                docker exec nginx-proxy nginx -s reload
+                
+                log_info "域名 $domain 配置完成"
+            else
+                log_error "域名 $domain 证书申请失败"
+            fi
         fi
         
         sleep 5
@@ -538,7 +599,7 @@ deploy_services() {
     if [ -n "$frps_dashboard_domain" ]; then
         echo -e "  FRPS管理: ${YELLOW}https://$frps_dashboard_domain${NC} (${dashboard_user}/${dashboard_pwd})"
     else
-        echo -e "  FRPS管理: ${YELLOW}https://$frps_domain/admin${NC} (${dashboard_user}/${dashboard_pwd})"
+        echo -e "  FRPS管理: ${YELLOW}https://$frps_domain/admin/${NC} (${dashboard_user}/${dashboard_pwd})"
     fi
     echo ""
     echo -e "${CYAN}FRPS配置信息:${NC}"
