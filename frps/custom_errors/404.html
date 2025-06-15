@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - 页面未找到</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .container {
+            text-align: center;
+            padding: 0 20px;
+            max-width: 600px;
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        .error-code {
+            font-size: 120px;
+            font-weight: 800;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            animation: glitch 2s infinite;
+        }
+
+        .error-title {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .error-message {
+            font-size: 18px;
+            line-height: 1.6;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+
+        .back-button {
+            display: inline-block;
+            padding: 12px 30px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid #fff;
+            border-radius: 30px;
+            color: #fff;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .back-button:hover {
+            background: #fff;
+            color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .decoration {
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            filter: blur(40px);
+        }
+
+        .decoration-1 {
+            top: -150px;
+            left: -150px;
+        }
+
+        .decoration-2 {
+            bottom: -150px;
+            right: -150px;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes glitch {
+            0%, 100% {
+                text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            }
+            25% {
+                text-shadow: -2px 0 #00ffcc, 2px 0 #ff00cc;
+            }
+            50% {
+                text-shadow: 2px 0 #00ffcc, -2px 0 #ff00cc;
+            }
+            75% {
+                text-shadow: 0 2px #00ffcc, 0 -2px #ff00cc;
+            }
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 14px;
+            opacity: 0.7;
+        }
+
+        @media (max-width: 600px) {
+            .error-code {
+                font-size: 80px;
+            }
+            .error-title {
+                font-size: 24px;
+            }
+            .error-message {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="decoration decoration-1"></div>
+    <div class="decoration decoration-2"></div>
+    
+    <div class="container">
+        <h1 class="error-code">404</h1>
+        <h2 class="error-title">页面未找到</h2>
+        <p class="error-message">
+            抱歉，您请求的页面不存在或已被移除。<br>
+            请检查URL是否正确，或返回首页继续浏览。
+        </p>
+        <a href="/" class="back-button">返回首页</a>
+    </div>
+    
+    <div class="footer">
+        Powered by FRP Proxy Service
+    </div>
+</body>
+</html>

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# FRPS + Mail + SSL 一键部署脚本
-# 支持零配置部署 nginx + frps + stalwart-mail 服务
+# FRPS + Nginx SSL 一键部署脚本
+# 支持零配置部署 nginx + frps 服务
 
 set -e
 
@@ -39,12 +39,12 @@ show_banner() {
     echo -e "${CYAN}"
     cat << 'EOF'
 ╔══════════════════════════════════════════════════════════╗
-║            FRPS + Mail + SSL 一键部署系统                ║
+║            FRPS + Nginx SSL 一键部署系统                  ║
 ║                                                          ║
 ║  🚀 FRPS内网穿透服务 + SSL                               ║
-║  📧 Stalwart邮件服务器 + SSL                             ║
 ║  🌐 Nginx反向代理 + 自动SSL证书                          ║
 ║  🔄 Let's Encrypt自动续签                                ║
+║  🎨 自定义404错误页面                                    ║
 ╚══════════════════════════════════════════════════════════╝
 EOF
     echo -e "${NC}"
@@ -57,38 +57,90 @@ check_dependencies() {
     log_info "检查系统依赖..."
     
     local missing_deps=()
+    local need_install=false
     
+    # 检查Docker
     if ! command -v docker &> /dev/null; then
         missing_deps+=("docker")
+        need_install=true
     fi
     
+    # 检查Docker Compose
     if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
         missing_deps+=("docker-compose")
+        need_install=true
     fi
     
-    if ! command -v openssl &> /dev/null; then
-        missing_deps+=("openssl")
-    fi
+    # 检查其他必要工具
+    for tool in curl wget openssl; do
+        if ! command -v $tool &> /dev/null; then
+            missing_deps+=("$tool")
+            need_install=true
+        fi
+    done
     
-    if [ ${#missing_deps[@]} -ne 0 ]; then
-        log_error "缺少依赖: ${missing_deps[*]}"
+    if [ "$need_install" = true ]; then
+        log_warn "缺少以下依赖: ${missing_deps[*]}"
         echo ""
-        echo "Ubuntu/Debian 安装命令:"
-        echo "  sudo apt update && sudo apt install -y docker.io docker-compose openssl"
+        echo -e "${YELLOW}是否自动安装缺少的依赖？${NC}"
+        echo -e "${BLUE}提示: 安装脚本支持 Ubuntu/Debian/CentOS/RHEL${NC}"
         echo ""
-        echo "CentOS/RHEL 安装命令:"
-        echo "  sudo yum install -y docker docker-compose openssl"
-        echo ""
-        exit 1
+        read -p "自动安装依赖? (Y/n) " -n 1 -r
+        echo
+        
+        if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+            log_info "开始自动安装依赖..."
+            if [ -x "$SCRIPT_DIR/install-dependencies.sh" ]; then
+                "$SCRIPT_DIR/install-dependencies.sh" --quick
+                
+                # 重新检查
+                if ! command -v docker &> /dev/null || ! docker info &> /dev/null; then
+                    log_error "依赖安装可能未完成，请手动检查"
+                    exit 1
+                fi
+                
+                log_info "依赖安装完成，继续部署..."
+            else
+                log_error "找不到依赖安装脚本"
+                exit 1
+            fi
+        else
+            log_error "请手动安装依赖后重新运行"
+            echo ""
+            echo "您可以运行以下命令安装依赖:"
+            echo "  ./install-dependencies.sh"
+            echo ""
+            echo "或手动安装:"
+            echo "  Ubuntu/Debian: sudo apt install -y docker.io docker-compose curl wget openssl"
+            echo "  CentOS/RHEL: sudo yum install -y docker docker-compose curl wget openssl"
+            echo ""
+            exit 1
+        fi
+    else
+        # 检查Docker服务状态
+        if ! docker info &> /dev/null; then
+            log_warn "Docker服务未运行"
+            echo ""
+            read -p "是否启动Docker服务? (Y/n) " -n 1 -r
+            echo
+            
+            if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+                if command -v systemctl &> /dev/null; then
+                    sudo systemctl start docker
+                    sudo systemctl enable docker
+                    log_info "Docker服务已启动"
+                else
+                    log_error "无法自动启动Docker服务，请手动启动"
+                    exit 1
+                fi
+            else
+                log_error "Docker服务未运行，无法继续"
+                exit 1
+            fi
+        fi
+        
+        log_info "依赖检查通过"
     fi
-    
-    if ! docker info &> /dev/null; then
-        log_error "Docker服务未运行，请启动Docker"
-        echo "启动命令: sudo systemctl start docker"
-        exit 1
-    fi
-    
-    log_info "依赖检查通过"
 }
 
 # 生成FRPS配置
@@ -101,13 +153,11 @@ generate_frps_config() {
     log_info "生成FRPS配置..."
     
     cat > "$SCRIPT_DIR/frps/config/frps.toml" << EOF
-# FRPS 服务器配置
-bindPort = 7000
-token = "$frps_token"
+# FRPS 配置文件
 
-# HTTP 代理配置
-vhostHTTPPort = 8880
-vhostHTTPSPort = 8843
+# 基础配置
+bindPort = 7000
+bindAddr = "0.0.0.0"
 
 # Dashboard 配置
 webServer.addr = "0.0.0.0"
@@ -115,18 +165,30 @@ webServer.port = 7001
 webServer.user = "$dashboard_user"
 webServer.password = "$dashboard_pwd"
 
-# 性能优化
-transport.maxPoolSize = 50
-transport.tcpMux = true
-transport.tcpMuxKeepaliveInterval = 60
-
-# 域名配置
-subDomainHost = "$frps_domain"
+# 自定义404错误页面
+custom404Page = "/etc/frp/custom_errors/404.html"
 
 # 日志配置
 log.to = "/var/log/frps/frps.log"
 log.level = "info"
-log.maxDays = 7
+log.maxDays = 3
+
+# 认证配置
+auth.method = "token"
+auth.token = "$frps_token"
+
+# 连接池
+transport.maxPoolCount = 5
+
+# 心跳配置
+transport.heartbeatTimeout = 90
+
+# 端口白名单，允许客户端绑定的端口范围
+allowPorts = [
+  { start = 2000, end = 3000 },
+  { start = 3001, end = 4000 },
+  { start = 4001, end = 50000 }
+]
 EOF
     
     log_info "FRPS配置生成完成"
@@ -134,114 +196,6 @@ EOF
     log_info "Dashboard: $dashboard_user / $dashboard_pwd"
 }
 
-# 生成Stalwart Mail配置
-generate_mail_config() {
-    local mail_domain=$1
-    local admin_password=${2:-$(openssl rand -base64 32)}
-    
-    log_info "生成邮件服务器配置..."
-    
-    # 生成管理员密码哈希
-    local password_hash=$(openssl passwd -6 "$admin_password")
-    
-    cat > "$SCRIPT_DIR/stalwart-mail/config/config.toml" << EOF
-# Stalwart 邮件服务器配置
-
-# 认证配置
-[authentication.fallback-admin]
-user = "admin"
-secret = "$password_hash"
-
-# 服务器配置
-[server]
-hostname = "$mail_domain"
-max-connections = 8192
-
-# HTTP 管理界面
-[server.listener.http]
-bind = "[::]:8080"
-protocol = "http"
-
-# SMTP 配置
-[server.listener.smtp]
-bind = "[::]:25"
-protocol = "smtp"
-
-[server.listener.submission]
-bind = "[::]:587"  
-protocol = "smtp"
-
-[server.listener.submissions]
-bind = "[::]:465"
-protocol = "smtp"
-tls.implicit = true
-
-# IMAP 配置  
-[server.listener.imap]
-bind = "[::]:143"
-protocol = "imap"
-
-[server.listener.imaptls]
-bind = "[::]:993"
-protocol = "imap"
-tls.implicit = true
-
-# POP3 配置
-[server.listener.pop3]
-bind = "[::]:110"
-protocol = "pop3"
-
-[server.listener.pop3s]
-bind = "[::]:995"
-protocol = "pop3"
-tls.implicit = true
-
-# ManageSieve 配置
-[server.listener.sieve]
-bind = "[::]:4190"
-protocol = "managesieve"
-
-# SSL证书配置 (通过volume挂载)
-[certificate.default]
-cert = "file:///opt/stalwart-mail/certs/$mail_domain/fullchain.pem"
-private-key = "file:///opt/stalwart-mail/certs/$mail_domain/privkey.pem"
-default = true
-
-# 存储配置
-[storage]
-data = "rocksdb"
-blob = "rocksdb" 
-lookup = "rocksdb"
-fts = "rocksdb"
-directory = "internal"
-
-[store.rocksdb]
-type = "rocksdb"
-path = "/opt/stalwart-mail/data"
-compression = "lz4"
-
-[directory.internal]
-type = "internal"
-store = "rocksdb"
-
-# 日志配置
-[tracer.log]
-type = "log"
-level = "info"
-enable = true
-path = "/opt/stalwart-mail/logs"
-prefix = "stalwart.log"
-rotate = "daily"
-ansi = false
-
-# Web管理界面
-[webadmin]
-resource = "file:///opt/stalwart-mail/etc/webadmin.zip"
-EOF
-    
-    log_info "邮件服务器配置生成完成"
-    log_info "管理员密码: $admin_password"
-}
 
 # 生成Nginx主配置
 generate_nginx_config() {
@@ -368,18 +322,6 @@ generate_domain_ssl_config() {
         proxy_set_header X-Forwarded-Proto $scheme;
     }'
             ;;
-        "mail-web")
-            # 邮件管理界面
-            location_config='
-    location / {
-        proxy_pass http://stalwart-mail:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }'
-            ;;
         *)
             # 通用Web服务
             location_config="
@@ -479,14 +421,12 @@ init_deployment() {
 deploy_services() {
     local frps_domain=$1
     local frps_dashboard_domain=$2
-    local mail_domain=$3
-    local admin_email=$4
-    local frps_token=${5:-$(openssl rand -hex 16)}
-    local dashboard_user=${6:-admin}
-    local dashboard_pwd=${7:-$(openssl rand -hex 12)}
-    local mail_admin_pwd=${8:-$(openssl rand -base64 32)}
+    local admin_email=$3
+    local frps_token=${4:-$(openssl rand -hex 16)}
+    local dashboard_user=${5:-admin}
+    local dashboard_pwd=${6:-$(openssl rand -hex 12)}
     
-    if [ -z "$frps_domain" ] || [ -z "$mail_domain" ] || [ -z "$admin_email" ]; then
+    if [ -z "$frps_domain" ] || [ -z "$admin_email" ]; then
         log_error "参数不完整"
         show_usage
         exit 1
@@ -496,17 +436,16 @@ deploy_services() {
     
     # 1. 生成服务配置
     generate_frps_config "$frps_domain" "$frps_token" "$dashboard_user" "$dashboard_pwd"
-    generate_mail_config "$mail_domain" "$mail_admin_pwd"
     
     # 2. 启动基础服务
     log_info "启动基础服务..."
-    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" up -d nginx frps stalwart-mail
+    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" up -d nginx frps
     
     # 等待服务启动
     sleep 10
     
     # 3. 配置域名和申请证书
-    local domains=("$frps_domain" "$mail_domain")
+    local domains=("$frps_domain")
     if [ -n "$frps_dashboard_domain" ]; then
         domains+=("$frps_dashboard_domain")
     fi
@@ -521,9 +460,6 @@ deploy_services() {
                 ;;
             "$frps_domain")
                 generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
-                ;;
-            "$mail_domain")
-                generate_domain_ssl_config "$domain" "stalwart-mail" "8080" "mail-web"
                 ;;
         esac
         
@@ -553,16 +489,10 @@ deploy_services() {
     if [ -n "$frps_dashboard_domain" ]; then
         echo -e "  FRPS管理: ${YELLOW}https://$frps_dashboard_domain${NC} (${dashboard_user}/${dashboard_pwd})"
     fi
-    echo -e "  邮件管理: ${YELLOW}https://$mail_domain${NC} (admin/${mail_admin_pwd})"
     echo ""
     echo -e "${CYAN}FRPS配置信息:${NC}"
     echo -e "  Token: ${YELLOW}$frps_token${NC}"
     echo -e "  服务器: ${YELLOW}$frps_domain:7000${NC}"
-    echo ""
-    echo -e "${CYAN}邮件服务信息:${NC}"
-    echo -e "  SMTP: ${YELLOW}$mail_domain:587 (TLS)${NC}"
-    echo -e "  IMAP: ${YELLOW}$mail_domain:993 (SSL)${NC}"
-    echo -e "  管理: ${YELLOW}admin/$mail_admin_pwd${NC}"
     echo ""
 }
 
@@ -616,7 +546,7 @@ show_status() {
     echo ""
     
     # Docker服务状态
-    if docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(nginx-proxy|frps-server|stalwart-mail-server|NAMES)"; then
+    if docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(nginx-proxy|frps-server|NAMES)"; then
         echo ""
     else
         echo "  没有运行的服务"
@@ -644,25 +574,26 @@ show_status() {
 # 显示用法
 show_usage() {
     cat << EOF
-${CYAN}FRPS + Mail + SSL 一键部署系统${NC}
+${CYAN}FRPS + Nginx SSL 一键部署系统${NC}
 
 ${CYAN}用法:${NC}
-    $0 init                                               初始化环境
-    $0 deploy <frps域名> <dashboard域名> <邮件域名> <邮箱>   部署所有服务
-    $0 renew                                              续签证书
-    $0 setup-cron                                         设置自动续签
-    $0 status                                             显示状态
+    $0 init                                 初始化环境
+    $0 deploy <frps域名> <邮箱>              部署所有服务
+    $0 deploy <frps域名> <dashboard域名> <邮箱>  部署包含dashboard
+    $0 renew                                续签证书
+    $0 setup-cron                           设置自动续签
+    $0 status                               显示状态
 
 ${CYAN}示例:${NC}
     $0 init
-    $0 deploy frps.example.com admin.example.com mail.example.com admin@example.com
+    $0 deploy frps.example.com admin@example.com
+    $0 deploy frps.example.com admin.example.com admin@example.com
     $0 renew
     $0 status
 
 ${CYAN}说明:${NC}
     - frps域名: FRPS服务访问域名
-    - dashboard域名: FRPS管理界面域名 (可选，留空则不部署)
-    - 邮件域名: 邮件服务器域名
+    - dashboard域名: FRPS管理界面域名 (可选)
     - 邮箱: Let's Encrypt注册邮箱
 EOF
 }
@@ -680,7 +611,18 @@ main() {
         "deploy")
             check_dependencies
             init_deployment
-            deploy_services "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
+            # 判断参数个数
+            if [ $# -eq 3 ]; then
+                # deploy frps.example.com admin@example.com
+                deploy_services "$2" "" "$3"
+            elif [ $# -eq 4 ]; then
+                # deploy frps.example.com admin.example.com admin@example.com
+                deploy_services "$2" "$3" "$4"
+            else
+                log_error "参数不正确"
+                show_usage
+                exit 1
+            fi
             ;;
         "renew")
             renew_certificates

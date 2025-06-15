@@ -9,15 +9,14 @@ certbot/data/renewal/
 certbot/data/accounts/
 
 # 忽略邮件数据文件，但保留目录结构
-stalwart-mail/data/*
-!stalwart-mail/data/.gitkeep
+stalwart-mail/*
+!stalwart-mail/.gitkeep
+stalwart-mail/.env
+stalwart-mail/.first-run
 
 # 忽略生成的配置文件，但保留目录结构
 frps/config/*.toml
 !frps/config/.gitkeep
-
-stalwart-mail/config/*.toml
-!stalwart-mail/config/.gitkeep
 
 nginx/conf/conf.d/*.conf
 !nginx/conf/conf.d/.gitkeep

@@ -1,38 +1,51 @@
-# FRPS + Mail + SSL 一键部署系统
+# FRPS + Nginx SSL 部署方案
 
-🚀 **零配置部署 FRPS内网穿透 + Stalwart邮件服务器 + 自动SSL证书**
+🚀 **零配置部署 FRPS内网穿透服务 + 自动SSL证书**
 
 ## 🎯 功能特性
 
 - 🌐 **FRPS内网穿透服务**: 完整的内网穿透解决方案
-- 📧 **Stalwart邮件服务器**: 现代化的邮件服务器
 - 🔒 **自动SSL证书**: Let's Encrypt证书自动申请和续签
 - 🛡️ **Nginx反向代理**: 高性能反向代理和负载均衡
 - 📦 **一键部署**: 零配置，复制即用
 - 🔄 **自动续签**: SSL证书自动续签，永不过期
+- 🎨 **自定义404页面**: 专业的错误页面展示
 
 ## 🚀 快速开始
 
-### 1. 获取部署包
+### 方式一：超级快速开始（推荐新手）
 
 ```bash
-# 复制部署包到服务器
+# 1. 获取部署包
+git clone <repository-url> frps-mail-ssl-deploy
+cd frps-mail-ssl-deploy
+
+# 2. 运行快速开始向导
+./quick-start.sh
+```
+
+向导会自动：
+- ✅ 检查并安装Docker、Docker Compose等依赖
+- ✅ 验证域名DNS解析
+- ✅ 配置所有服务
+- ✅ 申请SSL证书
+- ✅ 设置自动续签
+
+### 方式二：手动部署（高级用户）
+
+```bash
+# 1. 获取部署包
 scp -r frps-mail-ssl-deploy/ user@your-server:/opt/
 cd /opt/frps-mail-ssl-deploy
-```
 
-### 2. 初始化环境
+# 2. 安装依赖（可选，deploy.sh会自动提示）
+./install-dependencies.sh
 
-```bash
-# 检查依赖并初始化
+# 3. 初始化环境
 ./deploy.sh init
-```
 
-### 3. 一键部署
-
-```bash
-# 部署所有服务 (dashboard域名可选)
-./deploy.sh deploy frps.example.com admin.example.com mail.example.com admin@example.com
+# 4. 一键部署
+./deploy.sh deploy frps.example.com admin@example.com
 ```
 
 完成！🎉
@@ -46,7 +59,7 @@ cd /opt/frps-mail-ssl-deploy
 ./deploy.sh init
 
 # 部署所有服务
-./deploy.sh deploy <FRPS域名> <管理界面域名> <邮件域名> <管理员邮箱>
+./deploy.sh deploy <FRPS域名> <管理界面域名>
 
 # 续签证书
 ./deploy.sh renew
@@ -65,10 +78,7 @@ cd /opt/frps-mail-ssl-deploy
 
 ```bash
 # 完整部署
-./deploy.sh deploy frps.mydomain.com admin.mydomain.com mail.mydomain.com admin@mydomain.com
-
-# 不部署管理界面
-./deploy.sh deploy frps.mydomain.com "" mail.mydomain.com admin@mydomain.com
+./deploy.sh deploy frps.mydomain.com admin.mydomain.com
 ```
 
 ## 🏗️ 服务架构
@@ -89,17 +99,16 @@ cd /opt/frps-mail-ssl-deploy
 │  HTTPS Proxy Rules:                                                         │
 │  • frps.domain.com → frps:8880 (HTTP Tunnel)                              │
 │  • admin.domain.com → frps:7001 (Dashboard)                               │
-│  • mail.domain.com → stalwart-mail:8080 (Web Admin)                       │
 └─────────────────────────────────────────────────────────────────────────────┘
                            │              │              │
                            ▼              ▼              ▼
-┌─────────────────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐
-│         FRPS Server         │  │   FRPS Admin    │  │    Stalwart Mail        │
-│                             │  │   Dashboard     │  │       Server            │
-│ Port 7000: Main Service     │  │ Port 7001: Web  │  │ Port 25/587/465: SMTP  │
-│ Port 8880: HTTP Proxy       │  │ Management UI   │  │ Port 993/995: IMAP/POP3│
-│ Port 8843: HTTPS Proxy      │  │                 │  │ Port 4190: ManageSieve │
-└─────────────────────────────┘  └─────────────────┘  └─────────────────────────┘
+┌─────────────────────────────┐  ┌─────────────────┐
+│         FRPS Server         │  │   FRPS Admin    │
+│                             │  │   Dashboard     │
+│ Port 7000: Main Service     │  │ Port 7001: Web  │
+│ Port 8880: HTTP Proxy       │  │ Management UI   │
+│ Port 8843: HTTPS Proxy      │  │                 │
+└─────────────────────────────┘  └─────────────────┘
 ```
 
 ## 📁 目录结构
@@ -120,13 +129,6 @@ frps-mail-ssl-deploy/
 │       └── 📄 index.html          # 欢迎页面
 ├── 📁 frps/
 │   └── 📁 config/
-│       └── 📄 .gitkeep            # 保持目录结构
-├── 📁 stalwart-mail/
-│   ├── 📁 config/
-│   │   └── 📄 .gitkeep            # 保持目录结构
-│   ├── 📁 data/                   # 邮件数据
-│   │   └── 📄 .gitkeep            # 保持目录结构
-│   └── 📁 logs/                   # 邮件日志
 │       └── 📄 .gitkeep            # 保持目录结构
 ├── 📁 certbot/
 │   └── 📁 data/                   # SSL证书存储
@@ -158,17 +160,6 @@ frps-mail-ssl-deploy/
 - **管理界面端口**: 7001
 - **自动Token生成**: 16字节随机token
 - **性能优化**: TCP复用、连接池等
-
-### Stalwart Mail 配置
-
-部署后自动配置的邮件服务：
-
-- **SMTP端口**: 25, 587 (STARTTLS), 465 (SSL)
-- **IMAP端口**: 143, 993 (SSL)
-- **POP3端口**: 110, 995 (SSL)
-- **ManageSieve**: 4190
-- **Web管理**: 8080 (通过域名访问)
-- **自动SSL**: 使用Let's Encrypt证书
 
 ### Nginx 配置
 
@@ -218,7 +209,6 @@ tail -f logs/nginx/error.log
 # 查看容器日志
 docker logs nginx-proxy
 docker logs frps-server
-docker logs stalwart-mail-server
 ```
 
 ### 服务管理
@@ -233,7 +223,6 @@ docker-compose restart
 # 重启单个服务
 docker-compose restart nginx
 docker-compose restart frps
-docker-compose restart stalwart-mail
 ```
 
 ### 证书管理
@@ -347,8 +336,6 @@ tar -czf "$BACKUP_DIR/configs.tar.gz" nginx/ frps/ stalwart-mail/config/
 # 备份SSL证书
 tar -czf "$BACKUP_DIR/certs.tar.gz" certbot/data/
 
-# 备份邮件数据
-tar -czf "$BACKUP_DIR/mail-data.tar.gz" stalwart-mail/data/
 
 echo "备份完成: $BACKUP_DIR"
 EOF
@@ -368,8 +355,6 @@ tar -xzf backup/configs.tar.gz
 # 恢复证书
 tar -xzf backup/certs.tar.gz
 
-# 恢复邮件数据
-tar -xzf backup/mail-data.tar.gz
 
 # 重启服务
 docker-compose up -d
@@ -396,7 +381,6 @@ docker-compose up -d
 tar -czf debug-logs.tar.gz logs/ 
 docker logs nginx-proxy > nginx-container.log 2>&1
 docker logs frps-server > frps-container.log 2>&1
-docker logs stalwart-mail-server > mail-container.log 2>&1
 ```
 
 ## 📄 许可证
@@ -405,4 +389,4 @@ docker logs stalwart-mail-server > mail-container.log 2>&1
 
 ---
 
-**🚀 现在就开始部署你的FRPS + 邮件服务器吧！**
+**🚀 现在就开始部署你的FRPS内网穿透服务吧！**
