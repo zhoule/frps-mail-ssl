@@ -143,12 +143,35 @@ check_dependencies() {
     fi
 }
 
-# 生成FRPS配置
+# 安全读取配置
+source_secret_utils() {
+    if [ -f "$SCRIPT_DIR/secret-utils.sh" ]; then
+        source "$SCRIPT_DIR/secret-utils.sh"
+        export_secrets
+    fi
+}
+
+# 生成FRPS配置（使用安全的密钥管理）
 generate_frps_config() {
     local frps_domain=$1
-    local frps_token=${2:-$(openssl rand -hex 16)}
+    local frps_token=""
     local dashboard_user=${3:-admin}
-    local dashboard_pwd=${4:-$(openssl rand -hex 12)}
+    local dashboard_pwd=""
+    
+    # 使用安全的配置管理
+    source_secret_utils
+    
+    if [ -n "$FRPS_TOKEN" ]; then
+        frps_token="$FRPS_TOKEN"
+    else
+        frps_token=${2:-$(openssl rand -hex 32)}
+    fi
+    
+    if [ -n "$ADMIN_PASSWORD" ]; then
+        dashboard_pwd="$ADMIN_PASSWORD"
+    else
+        dashboard_pwd=${4:-$(openssl rand -base64 24)}
+    fi
     
     log_info "生成FRPS配置..."
     
@@ -196,8 +219,10 @@ allowPorts = [
 EOF
     
     log_info "FRPS配置生成完成"
-    log_info "Token: $frps_token"
-    log_info "Dashboard: $dashboard_user / $dashboard_pwd"
+    # 安全显示配置信息（隐藏敏感部分）
+    log_info "Token: ${frps_token:0:8}...${frps_token: -4}"
+    log_info "Dashboard: $dashboard_user / ${dashboard_pwd:0:4}...${dashboard_pwd: -4}"
+    log_info "完整配置信息已安全存储在 .secrets/ 目录中"
 }
 
 
@@ -435,18 +460,49 @@ check_ssl_certificate() {
     fi
 }
 
-# 申请SSL证书
+# 申请多域名SSL证书 (SAN证书)
 request_ssl_certificate() {
-    local domain=$1
-    local email=$2
+    local email=$1
+    shift 1
+    local domains=("$@")
     
-    # 先检查证书是否有效
-    if check_ssl_certificate "$domain"; then
-        log_info "域名 $domain 证书仍然有效，跳过申请"
-        return 0
+    if [ ${#domains[@]} -eq 0 ]; then
+        log_error "没有提供域名"
+        return 1
     fi
     
-    log_info "为域名 $domain 申请SSL证书..."
+    local primary_domain="${domains[0]}"
+    
+    # 检查主域名证书是否有效
+    if check_ssl_certificate "$primary_domain"; then
+        log_info "主域名 $primary_domain 证书仍然有效，检查是否包含所有域名..."
+        
+        # 检查证书是否包含所有所需域名
+        local cert_file="$SCRIPT_DIR/certbot/data/live/$primary_domain/cert.pem"
+        local cert_domains=$(openssl x509 -in "$cert_file" -noout -text 2>/dev/null | grep -A1 "Subject Alternative Name" | tail -1 | tr ',' '\n' | grep "DNS:" | sed 's/.*DNS://' | tr -d ' ')
+        
+        local all_covered=true
+        for domain in "${domains[@]}"; do
+            if ! echo "$cert_domains" | grep -q "^$domain$"; then
+                log_warn "证书不包含域名: $domain"
+                all_covered=false
+                break
+            fi
+        done
+        
+        if [ "$all_covered" = true ]; then
+            log_info "现有证书已包含所有域名，跳过申请"
+            return 0
+        fi
+    fi
+    
+    log_info "申请多域名SSL证书，包含域名: ${domains[*]}"
+    
+    # 构建certbot命令参数
+    local certbot_args=""
+    for domain in "${domains[@]}"; do
+        certbot_args="$certbot_args -d $domain"
+    done
     
     docker run --rm \
         -v "$SCRIPT_DIR/certbot/data:/etc/letsencrypt" \
@@ -458,13 +514,13 @@ request_ssl_certificate() {
         --agree-tos \
         --no-eff-email \
         --non-interactive \
-        -d "$domain"
+        $certbot_args
     
     if [ $? -eq 0 ]; then
-        log_info "SSL证书申请成功: $domain"
+        log_info "多域名SSL证书申请成功: ${domains[*]}"
         return 0
     else
-        log_error "SSL证书申请失败: $domain"
+        log_error "多域名SSL证书申请失败: ${domains[*]}"
         return 1
     fi
 }
@@ -476,6 +532,12 @@ init_deployment() {
     # 创建日志目录
     mkdir -p "$SCRIPT_DIR/logs"
     touch "$SCRIPT_DIR/logs/deploy.log"
+    
+    # 初始化安全配置
+    if [ -f "$SCRIPT_DIR/security-enhancements.sh" ]; then
+        log_info "初始化安全配置..."
+        "$SCRIPT_DIR/security-enhancements.sh" config >/dev/null 2>&1
+    fi
     
     # 生成基础配置
     generate_nginx_config
@@ -516,59 +578,70 @@ deploy_services() {
         domains+=("$frps_dashboard_domain")
     fi
     
-    for domain in "${domains[@]}"; do
-        log_info "配置域名: $domain"
-        
-        # 检查证书是否已存在且有效
-        if check_ssl_certificate "$domain"; then
-            log_info "域名 $domain 证书有效，直接生成SSL配置"
+    # 检查是否需要申请证书
+    local need_cert=false
+    local primary_domain="${domains[0]}"
+    
+    if ! check_ssl_certificate "$primary_domain"; then
+        need_cert=true
+    else
+        # 检查证书是否包含所有域名
+        local cert_file="$SCRIPT_DIR/certbot/data/live/$primary_domain/cert.pem"
+        if [ -f "$cert_file" ]; then
+            local cert_domains=$(openssl x509 -in "$cert_file" -noout -text 2>/dev/null | grep -A1 "Subject Alternative Name" | tail -1 | tr ',' '\n' | grep "DNS:" | sed 's/.*DNS://' | tr -d ' ')
             
-            # 直接生成SSL配置
-            case "$domain" in
-                "$frps_dashboard_domain")
-                    generate_domain_ssl_config "$domain" "frps" "7001" "frps-web"
-                    ;;
-                "$frps_domain")
-                    generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
-                    ;;
-            esac
-            
-            # 重新加载nginx
-            docker exec nginx-proxy nginx -s reload
-            log_info "域名 $domain 配置完成"
+            for domain in "${domains[@]}"; do
+                if ! echo "$cert_domains" | grep -q "^$domain$"; then
+                    log_info "证书不包含域名 $domain，需要重新申请"
+                    need_cert=true
+                    break
+                fi
+            done
         else
-            # 证书不存在或无效，需要申请
-            # 1. 先生成HTTP配置用于证书申请
-            generate_domain_http_config "$domain"
-            
-            # 重新加载nginx
-            docker exec nginx-proxy nginx -s reload
-            
-            # 2. 申请证书
-            if request_ssl_certificate "$domain" "$admin_email"; then
-                log_info "域名 $domain SSL证书申请成功"
-                
-                # 3. 生成最终的SSL配置
-                case "$domain" in
-                    "$frps_dashboard_domain")
-                        generate_domain_ssl_config "$domain" "frps" "7001" "frps-web"
-                        ;;
-                    "$frps_domain")
-                        generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
-                        ;;
-                esac
-                
-                # 重新加载nginx应用SSL配置
-                docker exec nginx-proxy nginx -s reload
-                
-                log_info "域名 $domain 配置完成"
-            else
-                log_error "域名 $domain 证书申请失败"
-            fi
+            need_cert=true
         fi
+    fi
+    
+    if [ "$need_cert" = true ]; then
+        log_info "准备申请多域名SSL证书..."
         
+        # 为所有域名生成HTTP配置
+        for domain in "${domains[@]}"; do
+            generate_domain_http_config "$domain"
+        done
+        
+        # 重新加载nginx
+        docker exec nginx-proxy nginx -s reload
         sleep 5
+        
+        # 申请多域名证书
+        if request_ssl_certificate "$admin_email" "${domains[@]}"; then
+            log_info "多域名SSL证书申请成功"
+        else
+            log_error "多域名SSL证书申请失败"
+            return 1
+        fi
+    else
+        log_info "现有证书已包含所有域名，跳过申请"
+    fi
+    
+    # 为每个域名生成SSL配置
+    for domain in "${domains[@]}"; do
+        log_info "生成域名 $domain 的SSL配置..."
+        
+        case "$domain" in
+            "$frps_dashboard_domain")
+                generate_domain_ssl_config "$domain" "frps" "7001" "frps-web"
+                ;;
+            "$frps_domain")
+                generate_domain_ssl_config "$domain" "frps" "8880" "frps-api"
+                ;;
+        esac
     done
+    
+    # 重新加载nginx应用所有SSL配置
+    docker exec nginx-proxy nginx -s reload
+    log_info "所有域名配置完成"
     
     # 4. 最终重启所有服务
     log_info "重启所有服务以应用SSL配置..."
@@ -591,8 +664,9 @@ deploy_services() {
     fi
     echo ""
     echo -e "${CYAN}FRPS配置信息:${NC}"
-    echo -e "  Token: ${YELLOW}$frps_token${NC}"
+    echo -e "  Token: ${YELLOW}${frps_token:0:8}...${frps_token: -4}${NC}"
     echo -e "  服务器: ${YELLOW}$frps_domain:7000${NC}"
+    echo -e "  完整配置: ${YELLOW}./secret-utils.sh info${NC}"
     echo ""
 }
 
@@ -680,29 +754,160 @@ ${CYAN}用法:${NC}
     $0 init                                 初始化环境
     $0 deploy <frps域名> <邮箱>              部署FRPS服务
     $0 deploy <frps域名> <dashboard域名> <邮箱>  部署包含独立管理界面
+    $0 wildcard <主域名> <邮箱> <dns-provider>  部署泛域名SSL方案
     $0 renew                                续签证书
     $0 setup-cron                           设置自动续签
     $0 status                               显示状态
+    $0 security [选项]                      安全检查和增强
+    $0 health                               服务健康检查
 
 ${CYAN}示例:${NC}
     $0 init
     $0 deploy frps.example.com admin@example.com
     $0 deploy frps.example.com admin-frps.example.com admin@example.com
+    $0 wildcard example.com admin@example.com cloudflare
     $0 renew
     $0 status
+    $0 security all    # 执行所有安全增强
+    $0 health          # 检查服务健康状态
 
 ${CYAN}说明:${NC}
     - frps域名: FRPS服务访问域名
     - dashboard域名: FRPS管理界面独立域名 (推荐使用二级域名)
+    - 主域名: 用于泛域名证书的根域名
+    - dns-provider: DNS提供商 (cloudflare/aliyun/route53)
     - 邮箱: Let's Encrypt注册邮箱
 
+${CYAN}SSL证书方案:${NC}
+    📋 SAN证书 (默认): 指定域名，配置简单
+    🌟 泛域名证书: 无限子域名，frpc subdomain自动SSL
+    
+    详细说明: docs/wildcard-ssl.md
+
 ${CYAN}推荐配置:${NC}
-    使用独立二级域名的好处:
-    ✅ SSL加密保护管理界面
-    ✅ 避免端口暴露
-    ✅ 更专业的访问方式
-    ✅ 可以单独配置访问控制
+    ✅ 小规模/固定域名: 使用SAN证书
+    ✅ 大规模/动态域名: 使用泛域名证书
+    ✅ frpc subdomain自动SSL: 配置泛域名方案
 EOF
+}
+
+# 泛域名部署
+deploy_wildcard() {
+    local root_domain=$1
+    local admin_email=$2
+    local dns_provider=$3
+    
+    if [ -z "$root_domain" ] || [ -z "$admin_email" ] || [ -z "$dns_provider" ]; then
+        log_error "参数不完整"
+        show_usage
+        exit 1
+    fi
+    
+    log_info "开始部署泛域名SSL方案..."
+    log_info "根域名: $root_domain"
+    log_info "DNS提供商: $dns_provider"
+    
+    # 1. 生成FRPS配置
+    local frps_token=$(openssl rand -hex 16)
+    local dashboard_user="admin"
+    local dashboard_pwd=$(openssl rand -hex 12)
+    
+    generate_frps_config "$root_domain" "$frps_token" "$dashboard_user" "$dashboard_pwd"
+    
+    # 2. 生成泛域名nginx配置
+    generate_wildcard_nginx_config "$root_domain"
+    
+    # 3. 启动基础服务
+    log_info "启动基础服务..."
+    docker-compose -f "$SCRIPT_DIR/docker-compose.yml" up -d nginx frps
+    
+    # 等待服务启动
+    sleep 10
+    
+    # 4. 提示用户配置DNS和申请证书
+    echo ""
+    echo -e "${YELLOW}⚠️  泛域名证书需要手动配置DNS验证${NC}"
+    echo ""
+    echo -e "${CYAN}请按以下步骤配置:${NC}"
+    echo ""
+    echo "1. 确保DNS解析已配置:"
+    echo -e "   ${YELLOW}$root_domain${NC}      IN  A     your-server-ip"
+    echo -e "   ${YELLOW}*.$root_domain${NC}    IN  A     your-server-ip"
+    echo ""
+    echo "2. 安装DNS插件和申请证书:"
+    echo -e "   查看详细说明: ${CYAN}docs/wildcard-ssl.md${NC}"
+    echo ""
+    echo "3. 证书申请成功后，访问地址:"
+    echo -e "   FRPS服务: ${YELLOW}https://$root_domain${NC}"
+    echo -e "   管理界面: ${YELLOW}https://admin-frps.$root_domain${NC} (${dashboard_user}/${dashboard_pwd})"
+    echo -e "   任意子域名: ${YELLOW}https://subdomain.$root_domain${NC} (通过frpc设置)"
+    echo ""
+    echo -e "${CYAN}FRPS配置信息:${NC}"
+    echo -e "  Token: ${YELLOW}$frps_token${NC}"
+    echo -e "  服务器: ${YELLOW}$root_domain:7000${NC}"
+    echo ""
+}
+
+# 生成泛域名nginx配置
+generate_wildcard_nginx_config() {
+    local root_domain=$1
+    
+    log_info "生成泛域名nginx配置..."
+    
+    cat > "$SCRIPT_DIR/nginx/conf/conf.d/wildcard.conf" << EOF
+# 泛域名HTTP -> HTTPS重定向
+server {
+    listen 80;
+    server_name $root_domain *.$root_domain;
+
+    location /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+    }
+
+    location / {
+        return 301 https://\$server_name\$request_uri;
+    }
+}
+
+# 泛域名HTTPS服务器
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name $root_domain *.$root_domain;
+
+    # 泛域名SSL证书 (需要手动申请)
+    ssl_certificate /etc/letsencrypt/live/$root_domain/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$root_domain/privkey.pem;
+
+    # HSTS
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # 日志
+    access_log /var/log/nginx/wildcard.access.log main;
+    error_log /var/log/nginx/wildcard.error.log;
+
+    # FRPS管理界面 (admin-frps子域名)
+    location / {
+        # 如果是管理子域名
+        if (\$host = "admin-frps.$root_domain") {
+            proxy_pass http://frps:7001;
+            break;
+        }
+        
+        # 所有其他域名和子域名代理到FRPS虚拟主机
+        proxy_pass http://frps:8880;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$http_connection;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+    
+    log_info "泛域名nginx配置生成完成"
 }
 
 # 主函数
@@ -731,6 +936,18 @@ main() {
                 exit 1
             fi
             ;;
+        "wildcard")
+            check_dependencies
+            init_deployment
+            if [ $# -eq 4 ]; then
+                # wildcard example.com admin@example.com cloudflare
+                deploy_wildcard "$2" "$3" "$4"
+            else
+                log_error "泛域名部署参数不正确"
+                show_usage
+                exit 1
+            fi
+            ;;
         "renew")
             renew_certificates
             ;;
@@ -739,6 +956,22 @@ main() {
             ;;
         "status")
             show_status
+            ;;
+        "security")
+            if [ -f "$SCRIPT_DIR/security-enhancements.sh" ]; then
+                "$SCRIPT_DIR/security-enhancements.sh" "${2:-all}"
+            else
+                log_error "安全增强脚本未找到"
+                exit 1
+            fi
+            ;;
+        "health")
+            if [ -f "$SCRIPT_DIR/health-check.sh" ]; then
+                "$SCRIPT_DIR/health-check.sh"
+            else
+                log_error "健康检查脚本未找到"
+                exit 1
+            fi
             ;;
         "help"|*)
             show_usage

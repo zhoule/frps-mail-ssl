@@ -1,0 +1,176 @@
+# FRPC 客户端配置示例 - 泛域名SSL自动化方案
+# 适用于已配置泛域名证书的FRPS服务器
+
+# 服务器配置
+serverAddr = "flowbytes.cn"
+serverPort = 7000
+
+# 认证配置 (使用部署时生成的token)
+auth.method = "token"
+auth.token = "your_secure_token"  # 从部署输出中获取
+
+# 日志配置
+log.to = "./frpc.log"
+log.level = "info"
+log.maxDays = 3
+
+# ============ 🌟 泛域名SSL自动化示例 ============
+# 以下所有subdomain配置都会自动获得SSL证书！
+
+# Web应用 - 自动SSL! 🚀
+[[proxies]]
+name = "webapp"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 3000
+subdomain = "webapp"
+# 访问地址: https://webapp.flowbytes.cn (自动SSL!)
+
+# API服务 - 自动SSL! 🚀
+[[proxies]]
+name = "api"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8080
+subdomain = "api"
+# 访问地址: https://api.flowbytes.cn (自动SSL!)
+
+# 测试环境 - 自动SSL! 🚀
+[[proxies]]
+name = "test"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 9000
+subdomain = "test"
+# 访问地址: https://test.flowbytes.cn (自动SSL!)
+
+# 开发环境 - 自动SSL! 🚀
+[[proxies]]
+name = "dev"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8000
+subdomain = "dev"
+# 访问地址: https://dev.flowbytes.cn (自动SSL!)
+
+# 文档站点 - 自动SSL! 🚀
+[[proxies]]
+name = "docs"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 4000
+subdomain = "docs"
+# 访问地址: https://docs.flowbytes.cn (自动SSL!)
+
+# WebSocket应用 - 自动SSL+WebSocket! 🚀
+[[proxies]]
+name = "websocket"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 3001
+subdomain = "ws"
+# 访问地址: https://ws.flowbytes.cn (自动SSL+WebSocket!)
+
+# 博客系统 - 自动SSL! 🚀
+[[proxies]]
+name = "blog"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 2368
+subdomain = "blog"
+# 访问地址: https://blog.flowbytes.cn (自动SSL!)
+
+# 监控面板 - 自动SSL! 🚀
+[[proxies]]
+name = "monitor"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 3001
+subdomain = "monitor"
+# 访问地址: https://monitor.flowbytes.cn (自动SSL!)
+
+# ============ TCP/UDP 代理示例 ============
+
+# SSH访问
+[[proxies]]
+name = "ssh"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 22
+remotePort = 2222
+
+# MySQL数据库
+[[proxies]]
+name = "mysql"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 3306
+remotePort = 3306
+
+# Redis缓存
+[[proxies]]
+name = "redis"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 6379
+remotePort = 6379
+
+# ============ 特殊应用示例 ============
+
+# Next.js开发服务器 - 自动SSL! 🚀
+[[proxies]]
+name = "nextjs"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 3000
+subdomain = "next"
+# 访问地址: https://next.flowbytes.cn
+
+# React开发服务器 - 自动SSL! 🚀
+[[proxies]]
+name = "react"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 3000
+subdomain = "react"
+# 访问地址: https://react.flowbytes.cn
+
+# Vue开发服务器 - 自动SSL! 🚀
+[[proxies]]
+name = "vue"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8080
+subdomain = "vue"
+# 访问地址: https://vue.flowbytes.cn
+
+# Jupyter Notebook - 自动SSL! 🚀
+[[proxies]]
+name = "jupyter"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8888
+subdomain = "jupyter"
+# 访问地址: https://jupyter.flowbytes.cn
+
+# ============ 部署说明 ============
+#
+# 1. 确保服务器已部署泛域名SSL方案:
+#    ./deploy.sh wildcard flowbytes.cn admin@example.com cloudflare
+#
+# 2. 配置DNS泛域名解析:
+#    *.flowbytes.cn  IN  A  your-server-ip
+#
+# 3. 申请泛域名SSL证书:
+#    详见 docs/wildcard-ssl.md
+#
+# 4. 修改此配置文件中的:
+#    - serverAddr: 你的域名
+#    - auth.token: 部署时生成的token
+#    - subdomain: 你想要的子域名
+#
+# 5. 启动frpc客户端:
+#    ./frpc -c frpc-wildcard-example.toml
+#
+# 6. 享受自动SSL! 🎉
+#    任何新的subdomain都会自动获得SSL证书保护！
