@@ -6,7 +6,8 @@
       "Bash(chmod:*)",
       "Bash(find:*)",
       "Bash(ls:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(docker:*)"
     ],
     "deny": []
   }
