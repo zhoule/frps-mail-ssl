@@ -23,7 +23,7 @@ show_welcome() {
     cat << 'EOF'
 ╔════════════════════════════════════════════════════════╗
 ║                                                        ║
-║        FRPS + Mail + SSL 快速部署向导                  ║
+║        FRPS + SSL 快速部署向导                        ║
 ║                                                        ║
 ║  🚀 一键部署完整的服务器环境                           ║
 ║  📦 自动安装所有依赖                                   ║
@@ -52,12 +52,6 @@ collect_deployment_info() {
     # FRPS管理界面域名
     read -p "请输入FRPS管理界面域名 (例如: admin.example.com，留空跳过): " ADMIN_DOMAIN
     
-    # 邮件服务器域名
-    read -p "请输入邮件服务器域名 (例如: mail.example.com): " MAIL_DOMAIN
-    while [ -z "$MAIL_DOMAIN" ]; do
-        echo -e "${RED}域名不能为空${NC}"
-        read -p "请输入邮件服务器域名: " MAIL_DOMAIN
-    done
     
     # 管理员邮箱
     read -p "请输入管理员邮箱 (用于Let's Encrypt): " ADMIN_EMAIL
@@ -70,7 +64,6 @@ collect_deployment_info() {
     echo -e "${GREEN}=== 确认部署信息 ===${NC}"
     echo -e "FRPS服务域名: ${YELLOW}$FRPS_DOMAIN${NC}"
     [ -n "$ADMIN_DOMAIN" ] && echo -e "FRPS管理域名: ${YELLOW}$ADMIN_DOMAIN${NC}"
-    echo -e "邮件服务域名: ${YELLOW}$MAIL_DOMAIN${NC}"
     echo -e "管理员邮箱: ${YELLOW}$ADMIN_EMAIL${NC}"
     echo ""
     
@@ -90,7 +83,7 @@ check_dns() {
     
     local all_good=true
     
-    for domain in "$FRPS_DOMAIN" "$ADMIN_DOMAIN" "$MAIL_DOMAIN"; do
+    for domain in "$FRPS_DOMAIN" "$ADMIN_DOMAIN"; do
         [ -z "$domain" ] && continue
         
         echo -n "检查 $domain ... "
@@ -109,8 +102,6 @@ check_dns() {
         echo ""
         echo "  A记录: $FRPS_DOMAIN → 您的服务器IP"
         [ -n "$ADMIN_DOMAIN" ] && echo "  A记录: $ADMIN_DOMAIN → 您的服务器IP"
-        echo "  A记录: mail.$MAIL_DOMAIN → 您的服务器IP"
-        echo "  MX记录: $MAIL_DOMAIN → mail.$MAIL_DOMAIN (优先级10)"
         echo ""
         read -p "是否继续部署? (y/N) " -n 1 -r
         echo
@@ -144,7 +135,11 @@ start_deployment() {
     echo ""
     
     if [ -x "$SCRIPT_DIR/deploy.sh" ]; then
-        "$SCRIPT_DIR/deploy.sh" deploy "$FRPS_DOMAIN" "$ADMIN_DOMAIN" "$MAIL_DOMAIN" "$ADMIN_EMAIL"
+        if [ -n "$ADMIN_DOMAIN" ]; then
+            "$SCRIPT_DIR/deploy.sh" deploy "$FRPS_DOMAIN" "$ADMIN_DOMAIN" "$ADMIN_EMAIL"
+        else
+            "$SCRIPT_DIR/deploy.sh" deploy "$FRPS_DOMAIN" "$ADMIN_EMAIL"
+        fi
     else
         echo -e "${RED}找不到部署脚本${NC}"
         exit 1
@@ -175,14 +170,7 @@ post_deployment() {
     echo "1. 配置FRPS客户端连接到服务器"
     echo "   服务器地址: $FRPS_DOMAIN:7000"
     echo ""
-    echo "2. 获取Stalwart Mail管理员凭据"
-    echo "   运行: docker logs stalwart-mail-server"
-    echo ""
-    echo "3. 配置邮件DNS记录"
-    echo "   SPF: v=spf1 mx ~all"
-    echo "   DMARC: v=DMARC1; p=quarantine"
-    echo ""
-    echo "4. 查看服务状态"
+    echo "2. 查看服务状态"
     echo "   运行: ./deploy.sh status"
     echo ""
     echo -e "${YELLOW}需要帮助？查看 README.md 或运行 ./deploy.sh help${NC}"

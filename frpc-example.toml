@@ -1,0 +1,47 @@
+# FRPC 客户端配置示例
+# 支持WebSocket的配置
+
+# 服务器配置
+serverAddr = "frps.yourdomain.com"
+serverPort = 7000
+
+# 认证配置
+auth.method = "token"
+auth.token = "your_secure_token"  # 需要与服务端token一致
+
+# 日志配置
+log.to = "./frpc.log"
+log.level = "info"
+log.maxDays = 3
+
+# WebSocket应用示例 (比如：本地运行的WebSocket服务)
+[[proxies]]
+name = "websocket_app"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 3000
+customDomains = ["ws.yourdomain.com"]
+
+# 普通HTTP应用示例
+[[proxies]]
+name = "web_app"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8080
+customDomains = ["app.yourdomain.com"]
+
+# TCP端口映射示例 (SSH)
+[[proxies]]
+name = "ssh"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 22
+remotePort = 2222
+
+# HTTPS应用示例
+[[proxies]]
+name = "https_app"
+type = "https"
+localIP = "127.0.0.1"
+localPort = 443
+customDomains = ["secure.yourdomain.com"]

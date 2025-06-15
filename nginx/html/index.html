@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FRPS + Mail 服务器部署成功</title>
+    <title>FRPS 服务器部署成功</title>
     <style>
         * {
             margin: 0;
@@ -231,7 +231,7 @@
         <div class="success-icon">🎉</div>
         <h1>部署成功！</h1>
         <div class="subtitle">
-            FRPS + Stalwart Mail + SSL 自动化系统已成功运行<br>
+            FRPS + SSL 自动化系统已成功运行<br>
             您的服务现在拥有完整的HTTPS安全防护
         </div>
         
@@ -245,11 +245,6 @@
                 <div class="status-icon">🌐</div>
                 <div class="status-text">FRPS服务</div>
                 <div class="status-desc">内网穿透已就绪</div>
-            </div>
-            <div class="status-item">
-                <div class="status-icon">📧</div>
-                <div class="status-text">邮件服务</div>
-                <div class="status-desc">SMTP/IMAP 已启用</div>
             </div>
             <div class="status-item">
                 <div class="status-icon">🔄</div>
@@ -268,14 +263,6 @@
                 </div>
             </div>
             
-            <div class="service">
-                <div class="service-icon">📬</div>
-                <h3>Stalwart 邮件服务器</h3>
-                <p>现代化的邮件服务器，支持SMTP、IMAP、POP3协议，内置Web管理界面</p>
-                <div class="service-ports">
-                    <strong>端口:</strong> 25/587/465 (SMTP), 993/995 (IMAP/POP3), 4190 (Sieve)
-                </div>
-            </div>
             
             <div class="service">
                 <div class="service-icon">🛡️</div>
@@ -292,7 +279,6 @@
             <ul class="info-list">
                 <li><strong>FRPS服务</strong>: 使用您配置的FRPS域名，端口7000</li>
                 <li><strong>FRPS管理界面</strong>: 通过管理域名访问Web控制台</li>
-                <li><strong>邮件管理界面</strong>: 通过邮件域名访问Web管理面板</li>
                 <li><strong>SSL证书</strong>: 所有服务自动启用HTTPS安全连接</li>
             </ul>
         </div>
@@ -301,7 +287,6 @@
             <strong>📋 下一步操作:</strong>
             <ul class="info-list" style="margin-top: 10px;">
                 <li>配置FRPS客户端连接到您的服务器</li>
-                <li>创建邮件账户并配置邮件客户端</li>
                 <li>设置SSL证书自动续签: <code>./deploy.sh setup-cron</code></li>
                 <li>查看服务状态: <code>./deploy.sh status</code></li>
             </ul>
@@ -323,21 +308,10 @@ custom_domains = your-app.domain.com
             </div>
         </div>
         
-        <div class="info-section">
-            <div class="info-title">邮件客户端配置</div>
-            <ul class="info-list">
-                <li><strong>SMTP服务器</strong>: your-mail-domain.com</li>
-                <li><strong>SMTP端口</strong>: 587 (STARTTLS) 或 465 (SSL)</li>
-                <li><strong>IMAP服务器</strong>: your-mail-domain.com</li>
-                <li><strong>IMAP端口</strong>: 993 (SSL)</li>
-                <li><strong>用户名</strong>: 完整邮箱地址</li>
-                <li><strong>加密方式</strong>: SSL/TLS (推荐)</li>
-            </ul>
-        </div>
         
         <div class="footer">
             <div>
-                <span class="version">FRPS + Mail + SSL Deploy v1.0.0</span>
+                <span class="version">FRPS + SSL Deploy v1.0.0</span>
             </div>
             <div style="margin-top: 10px;">
                 💡 需要帮助？查看 <code>README.md</code> 或运行 <code>./deploy.sh help</code>

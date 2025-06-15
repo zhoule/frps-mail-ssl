@@ -10,6 +10,7 @@
 - 📦 **一键部署**: 零配置，复制即用
 - 🔄 **自动续签**: SSL证书自动续签，永不过期
 - 🎨 **自定义404页面**: 专业的错误页面展示
+- 🔌 **WebSocket支持**: 完整的WebSocket协议支持
 
 ## 🚀 快速开始
 
@@ -17,8 +18,8 @@
 
 ```bash
 # 1. 获取部署包
-git clone <repository-url> frps-mail-ssl-deploy
-cd frps-mail-ssl-deploy
+git clone <repository-url> frps-ssl-deploy
+cd frps-ssl-deploy
 
 # 2. 运行快速开始向导
 ./quick-start.sh
@@ -35,8 +36,8 @@ cd frps-mail-ssl-deploy
 
 ```bash
 # 1. 获取部署包
-scp -r frps-mail-ssl-deploy/ user@your-server:/opt/
-cd /opt/frps-mail-ssl-deploy
+scp -r frps-ssl-deploy/ user@your-server:/opt/
+cd /opt/frps-ssl-deploy
 
 # 2. 安装依赖（可选，deploy.sh会自动提示）
 ./install-dependencies.sh
@@ -114,7 +115,7 @@ cd /opt/frps-mail-ssl-deploy
 ## 📁 目录结构
 
 ```
-frps-mail-ssl-deploy/
+frps-ssl-deploy/
 ├── 📄 deploy.sh                    # 主部署脚本
 ├── 📄 docker-compose.yml           # Docker服务配置
 ├── 📄 README.md                    # 说明文档
@@ -128,8 +129,10 @@ frps-mail-ssl-deploy/
 │   └── 📁 html/                   # Web根目录
 │       └── 📄 index.html          # 欢迎页面
 ├── 📁 frps/
-│   └── 📁 config/
-│       └── 📄 .gitkeep            # 保持目录结构
+│   ├── 📁 config/
+│   │   └── 📄 frps.toml           # FRPS配置文件(自动生成)
+│   └── 📁 custom_errors/
+│       └── 📄 404.html            # 自定义404页面
 ├── 📁 certbot/
 │   └── 📁 data/                   # SSL证书存储
 │       └── 📄 .gitkeep            # 保持目录结构
@@ -146,7 +149,7 @@ frps-mail-ssl-deploy/
 
 - **📄 .gitkeep**: 确保空目录被Git跟踪和保存
 - **📄 .gitignore**: 忽略运行时生成的文件，但保留目录结构
-- **🔒 数据安全**: 敏感数据(SSL证书、邮件数据)不会被提交到Git
+- **🔒 数据安全**: 敏感数据(SSL证书)不会被提交到Git
 
 ## 🔧 服务配置
 
@@ -155,11 +158,13 @@ frps-mail-ssl-deploy/
 部署后自动生成的FRPS配置包括：
 
 - **主服务端口**: 7000
-- **HTTP代理端口**: 8880 
-- **HTTPS代理端口**: 8843
+- **HTTP虚拟主机端口**: 8080
+- **HTTPS虚拟主机端口**: 8443
 - **管理界面端口**: 7001
 - **自动Token生成**: 16字节随机token
-- **性能优化**: TCP复用、连接池等
+- **WebSocket支持**: 完整支持WebSocket协议
+- **自定义404页面**: 专业的错误页面展示
+- **性能优化**: 连接池、心跳检测等
 
 ### Nginx 配置
 
@@ -238,6 +243,16 @@ openssl x509 -in certbot/data/live/domain.com/cert.pem -noout -enddate
 ./deploy.sh setup-cron
 ```
 
+## 🔌 WebSocket 支持
+
+项目完整支持WebSocket协议，详细配置说明请查看：[📋 WebSocket配置指南](./docs/websocket-guide.md)
+
+### 快速配置
+
+1. **客户端配置示例** (`frpc-example.toml`)
+2. **Nginx代理配置** (`nginx/conf/conf.d/websocket-proxy.conf.example`)
+3. **完整的WebSocket测试和故障排查指南**
+
 ## 📊 监控和维护
 
 ### 服务监控
@@ -245,7 +260,6 @@ openssl x509 -in certbot/data/live/domain.com/cert.pem -noout -enddate
 部署完成后，可以通过以下方式监控服务：
 
 1. **FRPS Dashboard**: `https://admin.yourdomain.com`
-2. **邮件管理界面**: `https://mail.yourdomain.com` 
 3. **Nginx状态**: 通过日志文件监控
 4. **Docker状态**: `docker ps` 和 `docker stats`
 
@@ -255,10 +269,10 @@ openssl x509 -in certbot/data/live/domain.com/cert.pem -noout -enddate
 
 ```bash
 # 每周检查服务状态
-0 1 * * 1 /opt/frps-mail-ssl-deploy/deploy.sh status
+0 1 * * 1 /opt/frps-ssl-deploy/deploy.sh status
 
 # 每月清理旧日志  
-0 0 1 * * find /opt/frps-mail-ssl-deploy/logs -name "*.log" -mtime +30 -delete
+0 0 1 * * find /opt/frps-ssl-deploy/logs -name "*.log" -mtime +30 -delete
 
 # 每周检查磁盘空间
 0 2 * * 1 df -h | mail -s "Disk Usage Report" admin@yourdomain.com
@@ -331,7 +345,7 @@ BACKUP_DIR="/backup/$(date +%Y%m%d)"
 mkdir -p "$BACKUP_DIR"
 
 # 备份配置文件
-tar -czf "$BACKUP_DIR/configs.tar.gz" nginx/ frps/ stalwart-mail/config/
+tar -czf "$BACKUP_DIR/configs.tar.gz" nginx/ frps/
 
 # 备份SSL证书
 tar -czf "$BACKUP_DIR/certs.tar.gz" certbot/data/

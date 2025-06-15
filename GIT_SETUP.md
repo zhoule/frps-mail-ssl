@@ -18,9 +18,6 @@ Git 不会跟踪空目录，但我们的部署系统需要特定的目录结构�
 📁 logs/nginx/                   # Nginx日志目录
 📁 logs/frps/                    # FRPS日志目录
 📁 nginx/conf/conf.d/            # 域名配置目录
-📁 stalwart-mail/config/         # 邮件服务器配置目录
-📁 stalwart-mail/data/           # 邮件数据目录
-📁 stalwart-mail/logs/           # 邮件服务器日志目录
 ```
 
 ## 🔒 .gitignore 规则说明
@@ -48,19 +45,11 @@ certbot/data/accounts/
 ### 配置文件
 ```gitignore
 frps/config/*.toml
-stalwart-mail/config/*.toml
 nginx/conf/conf.d/*.conf
 ```
 - **原因**: 这些配置文件是运行时自动生成的
 - **效果**: 保留配置目录，但忽略生成的配置文件
 
-### 数据文件
-```gitignore
-stalwart-mail/data/*
-!stalwart-mail/data/.gitkeep
-```
-- **原因**: 邮件数据包含用户隐私信息
-- **效果**: 忽略所有数据文件，但保留 `.gitkeep`
 
 ## 🚀 Git 操作指南
 
@@ -74,7 +63,7 @@ git init
 git add .
 
 # 3. 提交初始版本
-git commit -m "Initial commit: FRPS + Mail + SSL Deploy System"
+git commit -m "Initial commit: FRPS + SSL Deploy System"
 
 # 4. 添加远程仓库
 git remote add origin <your-repository-url>
@@ -88,14 +77,14 @@ git push -u origin main
 ```bash
 # 1. 克隆仓库
 git clone <your-repository-url>
-cd frps-mail-ssl-deploy
+cd frps-ssl-deploy
 
 # 2. 检查目录结构 (所有目录都应该存在)
 ls -la */
 
 # 3. 直接运行部署
 ./deploy.sh init
-./deploy.sh deploy your-domain.com admin.your-domain.com mail.your-domain.com admin@your-domain.com
+./deploy.sh deploy your-domain.com admin.your-domain.com admin@your-domain.com
 ```
 
 ### 更新部署包
@@ -117,15 +106,12 @@ docker-compose restart
 
 1. **永远不要提交**:
    - SSL 证书和私钥
-   - 邮件数据库文件
-   - 用户邮件内容
    - 生成的密码和token
 
 2. **使用环境变量**:
    ```bash
    # 可以通过环境变量传递敏感配置
    export FRPS_TOKEN="your-secret-token"
-   export MAIL_ADMIN_PASSWORD="your-admin-password"
    ./deploy.sh deploy ...
    ```
 
@@ -134,7 +120,6 @@ docker-compose restart
    # 备份重要数据(不包含在Git中)
    tar -czf backup-$(date +%Y%m%d).tar.gz \
      certbot/data/ \
-     stalwart-mail/data/ \
      logs/
    ```
 
@@ -159,7 +144,7 @@ git push origin main --tags
 ### GitHub Actions 示例
 
 ```yaml
-name: Deploy FRPS + Mail + SSL
+name: Deploy FRPS + SSL
 on:
   push:
     branches: [ main ]
@@ -177,7 +162,7 @@ jobs:
         username: ${{ secrets.USERNAME }}
         key: ${{ secrets.KEY }}
         script: |
-          cd /opt/frps-mail-ssl-deploy
+          cd /opt/frps-ssl-deploy
           git pull origin main
           ./deploy.sh status
 ```
@@ -186,7 +171,7 @@ jobs:
 
 ```bash
 # 添加到 crontab
-0 3 * * 1 cd /opt/frps-mail-ssl-deploy && git pull origin main
+0 3 * * 1 cd /opt/frps-ssl-deploy && git pull origin main
 ```
 
 ## 📊 监控和维护
@@ -224,7 +209,7 @@ git gc --aggressive
 A: 检查是否所有 `.gitkeep` 文件都被正确提交：
 ```bash
 find . -name ".gitkeep" -type f | wc -l
-# 应该显示 8 (我们添加了8个.gitkeep文件)
+# 应该显示 5 (我们添加了5个.gitkeep文件)
 ```
 
 ### Q: 敏感文件被意外提交了怎么办？
