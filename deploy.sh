@@ -1166,12 +1166,25 @@ deploy_wildcard() {
     # 等待服务启动
     sleep 10
     
-    # 4. 申请泛域名SSL证书
-    if request_wildcard_certificate "$root_domain" "$admin_email" "$dns_provider"; then
-        log_info "泛域名SSL证书申请成功"
+    # 4. 申请或使用现有的泛域名SSL证书
+    if [ -f "$SCRIPT_DIR/certbot/data/live/$root_domain/fullchain.pem" ]; then
+        log_info "发现已存在的SSL证书，跳过申请步骤"
+        # 确保证书已安装到正确位置
+        if [ -d "$HOME/.acme.sh/$root_domain" ]; then
+            log_info "同步 acme.sh 证书到 certbot 目录..."
+            "$HOME/.acme.sh/acme.sh" --install-cert \
+                -d "$root_domain" \
+                --key-file "$SCRIPT_DIR/certbot/data/live/$root_domain/privkey.pem" \
+                --fullchain-file "$SCRIPT_DIR/certbot/data/live/$root_domain/fullchain.pem" \
+                --reloadcmd "docker exec nginx-proxy nginx -s reload 2>/dev/null || true"
+        fi
     else
-        log_error "泛域名SSL证书申请失败"
-        return 1
+        if request_wildcard_certificate "$root_domain" "$admin_email" "$dns_provider"; then
+            log_info "泛域名SSL证书申请成功"
+        else
+            log_error "泛域名SSL证书申请失败"
+            return 1
+        fi
     fi
     
     # 5. 生成SSL配置
@@ -1185,20 +1198,93 @@ deploy_wildcard() {
     log_info "重启所有服务以应用SSL配置..."
     docker-compose -f "$SCRIPT_DIR/docker-compose.yml" restart
     
-    # 8. 显示部署结果
+    # 8. 保存配置信息
+    mkdir -p "$SCRIPT_DIR/.secrets"
+    cat > "$SCRIPT_DIR/.secrets/deployment-info.txt" << EOF
+╔══════════════════════════════════════════════════════════════════════╗
+║                     FRPS 泛域名部署配置信息                          ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+部署时间: $(date)
+服务器IP: $(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+域名: $root_domain
+
+=== 服务访问地址 ===
+FRPS服务端口: $root_domain:7000
+管理面板: https://admin.$root_domain
+管理员账号: $dashboard_user / $dashboard_pwd
+
+=== FRPS 配置 ===
+Token: $frps_token
+HTTP 代理端口: 8880
+HTTPS 代理端口: 8843
+
+=== FRPC 客户端示例配置 ===
+创建 frpc.toml:
+
+[common]
+server_addr = "$root_domain"
+server_port = 7000
+token = "$frps_token"
+
+[web-demo]
+type = "http"
+local_ip = "127.0.0.1"
+local_port = 8080
+subdomain = "demo"
+# 访问地址: https://demo.$root_domain
+
+[api-service]
+type = "http"
+local_ip = "127.0.0.1"
+local_port = 3000
+subdomain = "api"
+# 访问地址: https://api.$root_domain
+
+[tcp-ssh]
+type = "tcp"
+local_ip = "127.0.0.1"
+local_port = 22
+remote_port = 2222
+# SSH访问: ssh -p 2222 user@$root_domain
+
+=== 测试命令 ===
+# 测试主域名
+curl -I https://$root_domain
+
+# 测试管理面板
+curl -I https://admin.$root_domain
+
+# 查看服务状态
+docker ps | grep -E "nginx-proxy|frps-server"
+
+# 查看日志
+docker logs frps-server
+docker logs nginx-proxy
+EOF
+
+    # 9. 显示部署结果
     echo ""
-    echo -e "${GREEN}🎉 泛域名SSL部署完成！${NC}"
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║          🎉 FRPS 泛域名SSL部署完成！🎉                  ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${CYAN}服务访问地址:${NC}"
-    echo -e "  FRPS服务: ${YELLOW}https://$root_domain${NC}"
-    echo -e "  管理界面: ${YELLOW}https://admin.$root_domain${NC} (${dashboard_user}/${dashboard_pwd})"
-    echo -e "  任意子域名: ${YELLOW}https://任意名称.$root_domain${NC} (自动SSL)"
+    echo -e "${CYAN}=== 服务访问地址 ===${NC}"
+    echo -e "  FRPS服务端口: ${YELLOW}$root_domain:7000${NC}"
+    echo -e "  管理面板: ${YELLOW}https://admin.$root_domain${NC}"
+    echo -e "  用户名/密码: ${YELLOW}${dashboard_user} / ${dashboard_pwd}${NC}"
     echo ""
-    echo -e "${CYAN}FRPS配置信息:${NC}"
-    echo -e "  Token: ${YELLOW}${frps_token:0:8}...${frps_token: -4}${NC}"
-    echo -e "  服务器: ${YELLOW}$root_domain:7000${NC}"
-    echo -e "  完整配置: ${YELLOW}./secret-utils.sh info${NC}"
+    echo -e "${CYAN}=== FRPS 连接配置 ===${NC}"
+    echo -e "  服务器地址: ${YELLOW}$root_domain${NC}"
+    echo -e "  端口: ${YELLOW}7000${NC}"
+    echo -e "  Token: ${YELLOW}$frps_token${NC}"
     echo ""
+    echo -e "${CYAN}=== 快速开始 ===${NC}"
+    echo -e "1. 在客户端创建 ${YELLOW}frpc.toml${NC} 配置文件"
+    echo -e "2. 设置 ${YELLOW}subdomain = \"你的子域名\"${NC}"
+    echo -e "3. 访问 ${YELLOW}https://你的子域名.$root_domain${NC}"
+    echo ""
+    echo -e "${GREEN}✅ 完整配置已保存到: ${YELLOW}.secrets/deployment-info.txt${NC}"
     echo -e "${GREEN}✅ 现在任何子域名都会自动拥有SSL证书！${NC}"
     echo ""
 }
@@ -1267,10 +1353,10 @@ server {
     access_log /var/log/nginx/wildcard.access.log main;
     error_log /var/log/nginx/wildcard.error.log;
 
-    # FRPS管理界面 (admin-frps子域名)
+    # FRPS管理界面 (admin子域名)
     location / {
         # 如果是管理子域名
-        if (\$host = "admin-frps.$root_domain") {
+        if (\$host = "admin.$root_domain") {
             proxy_pass http://frps:7001;
             break;
         }

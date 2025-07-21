@@ -128,9 +128,19 @@ request_wildcard_cert_acme() {
         -d "*.$domain" \
         --keylength 2048
     
-    if [ $? -ne 0 ]; then
-        log_error "证书申请失败"
+    # 检查返回码
+    local issue_result=$?
+    
+    # acme.sh 返回码说明：
+    # 0 - 成功申请新证书
+    # 2 - 证书已存在且未到期
+    if [ $issue_result -eq 2 ]; then
+        log_warning "证书已存在且未到期，继续安装步骤"
+    elif [ $issue_result -ne 0 ] && [ $issue_result -ne 2 ]; then
+        log_error "证书申请失败 (错误码: $issue_result)"
         return 1
+    else
+        log_info "新证书申请成功"
     fi
     
     # 安装证书到指定位置
