@@ -944,10 +944,32 @@ validate_dns_credentials() {
                 return 1
             fi
             ;;
+        "dnspod")
+            if [ -z "$DNSPOD_ID" ] || [ -z "$DNSPOD_KEY" ]; then
+                log_error "DNSPod API配置不完整"
+                echo ""
+                echo -e "${YELLOW}请设置以下环境变量:${NC}"
+                echo -e "  ${CYAN}export DNSPOD_ID=\"your-id\"${NC}"
+                echo -e "  ${CYAN}export DNSPOD_KEY=\"your-key\"${NC}"
+                return 1
+            fi
+            ;;
+        "huaweicloud")
+            if [ -z "$HUAWEICLOUD_USERNAME" ] || [ -z "$HUAWEICLOUD_PASSWORD" ] || [ -z "$HUAWEICLOUD_PROJECT_ID" ]; then
+                log_error "华为云DNS API配置不完整"
+                echo ""
+                echo -e "${YELLOW}请设置以下环境变量:${NC}"
+                echo -e "  ${CYAN}export HUAWEICLOUD_USERNAME=\"your-username\"${NC}"
+                echo -e "  ${CYAN}export HUAWEICLOUD_PASSWORD=\"your-password\"${NC}"
+                echo -e "  ${CYAN}export HUAWEICLOUD_PROJECT_ID=\"your-project-id\"${NC}"
+                return 1
+            fi
+            ;;
         *)
-            log_error "不支持的DNS提供商: $dns_provider"
-            echo -e "${YELLOW}支持的DNS提供商: cloudflare, aliyun, tencent${NC}"
-            return 1
+            log_warning "DNS提供商 $dns_provider 可能需要额外配置"
+            echo -e "${YELLOW}常用DNS提供商: cloudflare, aliyun, tencent, dnspod, huaweicloud, aws, gcloud, azure${NC}"
+            echo -e "${YELLOW}更多提供商请参考: https://github.com/acmesh-official/acme.sh/wiki/dnsapi${NC}"
+            # 不返回错误，让 acme.sh 尝试处理
             ;;
     esac
     
@@ -965,13 +987,51 @@ load_env_file() {
     fi
 }
 
-# 申请泛域名SSL证书
-request_wildcard_certificate() {
+# 申请泛域名SSL证书（使用 acme.sh）
+request_wildcard_certificate_acme() {
     local root_domain=$1
     local admin_email=$2
     local dns_provider=$3
     
-    log_info "开始申请泛域名SSL证书: *.$root_domain"
+    log_info "使用 acme.sh 申请泛域名SSL证书: *.$root_domain"
+    
+    # 确保 scripts 目录存在
+    chmod +x "$SCRIPT_DIR/scripts/acme-wildcard.sh" 2>/dev/null || true
+    
+    # 调用 acme.sh 脚本
+    if [ -f "$SCRIPT_DIR/scripts/acme-wildcard.sh" ]; then
+        # 导入当前环境变量
+        export CLOUDFLARE_EMAIL CLOUDFLARE_API_KEY
+        export ALIBABA_CLOUD_ACCESS_KEY_ID ALIBABA_CLOUD_ACCESS_KEY_SECRET
+        export TENCENTCLOUD_SECRET_ID TENCENTCLOUD_SECRET_KEY
+        
+        # 调用 acme.sh 脚本申请证书
+        bash "$SCRIPT_DIR/scripts/acme-wildcard.sh" issue \
+            "$root_domain" \
+            "$admin_email" \
+            "$dns_provider" \
+            "$SCRIPT_DIR/certbot/data/live/$root_domain"
+        
+        if [ $? -eq 0 ]; then
+            log_info "泛域名SSL证书申请成功: *.$root_domain"
+            return 0
+        else
+            log_error "泛域名SSL证书申请失败: *.$root_domain"
+            return 1
+        fi
+    else
+        log_error "找不到 acme.sh 脚本文件"
+        return 1
+    fi
+}
+
+# 申请泛域名SSL证书（使用 certbot - 保留作为备选方案）
+request_wildcard_certificate_certbot() {
+    local root_domain=$1
+    local admin_email=$2
+    local dns_provider=$3
+    
+    log_info "使用 certbot 申请泛域名SSL证书: *.$root_domain"
     
     local docker_env_args=""
     local certbot_plugin=""
@@ -1001,17 +1061,9 @@ dns_aliyun_access_key_secret = $ALIBABA_CLOUD_ACCESS_KEY_SECRET
 EOF
             chmod 600 "$SCRIPT_DIR/certbot/credentials/aliyun.ini"
             ;;
-        "tencent")
-            certbot_plugin="dns-tencentcloud"
-            docker_env_args="-e TENCENTCLOUD_SECRET_ID=$TENCENTCLOUD_SECRET_ID -e TENCENTCLOUD_SECRET_KEY=$TENCENTCLOUD_SECRET_KEY"
-            
-            # 创建腾讯云凭据文件
-            mkdir -p "$SCRIPT_DIR/certbot/credentials"
-            cat > "$SCRIPT_DIR/certbot/credentials/tencent.ini" << EOF
-dns_tencentcloud_secret_id = $TENCENTCLOUD_SECRET_ID
-dns_tencentcloud_secret_key = $TENCENTCLOUD_SECRET_KEY
-EOF
-            chmod 600 "$SCRIPT_DIR/certbot/credentials/tencent.ini"
+        *)
+            log_error "certbot 方式不支持 $dns_provider，请使用 acme.sh"
+            return 1
             ;;
     esac
     
@@ -1019,8 +1071,6 @@ EOF
     local certbot_image="certbot/dns-$dns_provider"
     if [ "$dns_provider" = "aliyun" ]; then
         certbot_image="soulteary/certbot-dns-aliyun"
-    elif [ "$dns_provider" = "tencent" ]; then
-        certbot_image="certbot/dns-tencentcloud"
     fi
     
     docker run --rm \
@@ -1043,6 +1093,26 @@ EOF
     else
         log_error "泛域名SSL证书申请失败: *.$root_domain"
         return 1
+    fi
+}
+
+# 申请泛域名SSL证书（主函数）
+request_wildcard_certificate() {
+    local root_domain=$1
+    local admin_email=$2
+    local dns_provider=$3
+    
+    # 优先使用 acme.sh
+    request_wildcard_certificate_acme "$root_domain" "$admin_email" "$dns_provider"
+    
+    # 如果 acme.sh 失败，且是支持的提供商，尝试 certbot
+    if [ $? -ne 0 ]; then
+        if [ "$dns_provider" = "cloudflare" ] || [ "$dns_provider" = "aliyun" ]; then
+            log_warning "acme.sh 失败，尝试使用 certbot..."
+            request_wildcard_certificate_certbot "$root_domain" "$admin_email" "$dns_provider"
+        else
+            return 1
+        fi
     fi
 }
 
