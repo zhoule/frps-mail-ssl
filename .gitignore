@@ -24,6 +24,8 @@ renew.sh
 *.swp
 *.bak
 
+.env
+
 # 忽略系统文件
 .DS_Store
 Thumbs.db

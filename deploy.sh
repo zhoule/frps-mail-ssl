@@ -1002,14 +1002,14 @@ EOF
             chmod 600 "$SCRIPT_DIR/certbot/credentials/aliyun.ini"
             ;;
         "tencent")
-            certbot_plugin="dns-tencent"
+            certbot_plugin="dns-tencentcloud"
             docker_env_args="-e TENCENTCLOUD_SECRET_ID=$TENCENTCLOUD_SECRET_ID -e TENCENTCLOUD_SECRET_KEY=$TENCENTCLOUD_SECRET_KEY"
             
             # 创建腾讯云凭据文件
             mkdir -p "$SCRIPT_DIR/certbot/credentials"
             cat > "$SCRIPT_DIR/certbot/credentials/tencent.ini" << EOF
-dns_tencent_secret_id = $TENCENTCLOUD_SECRET_ID
-dns_tencent_secret_key = $TENCENTCLOUD_SECRET_KEY
+dns_tencentcloud_secret_id = $TENCENTCLOUD_SECRET_ID
+dns_tencentcloud_secret_key = $TENCENTCLOUD_SECRET_KEY
 EOF
             chmod 600 "$SCRIPT_DIR/certbot/credentials/tencent.ini"
             ;;
@@ -1020,7 +1020,7 @@ EOF
     if [ "$dns_provider" = "aliyun" ]; then
         certbot_image="soulteary/certbot-dns-aliyun"
     elif [ "$dns_provider" = "tencent" ]; then
-        certbot_image="soulteary/certbot-dns-tencent"
+        certbot_image="certbot/dns-tencentcloud"
     fi
     
     docker run --rm \
