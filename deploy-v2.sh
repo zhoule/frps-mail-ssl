@@ -59,10 +59,17 @@ check_requirements() {
         error "请先安装 Docker Compose"
     fi
     
-    # 检查端口
+    # 检查端口（只检查监听状态）
     for port in 80 443 7000; do
-        if lsof -i :$port &> /dev/null; then
-            error "端口 $port 已被占用"
+        if netstat -tln 2>/dev/null | grep -q ":$port "; then
+            # 检查是否是 Docker 容器占用
+            if docker ps 2>/dev/null | grep -q ":$port->"; then
+                log "端口 $port 被 Docker 容器占用，将停止旧容器"
+                docker-compose down 2>/dev/null || docker stop $(docker ps -q) 2>/dev/null
+                sleep 2
+            else
+                error "端口 $port 已被占用"
+            fi
         fi
     done
     
